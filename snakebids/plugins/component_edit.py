@@ -120,7 +120,9 @@ class ComponentEdit(PluginBase):
        to select multiple values (e.g. ``'session:match=01|02'``).
     3. ``ENTITY:required`` selects all paths with the entity, regardless of value.
     4. ``ENTITY:none`` selects all paths without the entity.
-    5. ``ENTITY:any`` removes filters for the entity.
+    5. ``ENTITY:optional`` marks the entity as optional. Subjects missing this entity
+       will be excluded from the component entirely.
+    6. ``ENTITY:any`` removes filters for the entity.
 
     CLI arguments created by this plugin cannot be overridden.
 
@@ -158,7 +160,8 @@ class ComponentEdit(PluginBase):
                 re.search() respectively. Regex can also be used to select multiple
                 values, e.g. 'session:match=01|02'. ENTITY:required and ENTITY:none can
                 be used to require or prohibit presence of an entity in selected paths,
-                respectively. ENTITY:optional can be used to remove a filter.
+                respectively. ENTITY:optional excludes subjects that don't have that
+                entity (different from removing the filter entirely).
                 """
             ),
         )
@@ -233,8 +236,15 @@ class ComponentEdit(PluginBase):
             arg_filter_dict = self.pop(namespace, f"filter.{input_type}", None)
             if arg_filter_dict is not None:
                 pybids_inputs[input_type].setdefault("filters", {})
+                pybids_inputs[input_type].setdefault("optional_entities", [])
                 for entity, filter_ in arg_filter_dict.items():
                     if filter_ is OptionalFilter:
+                        # Add to optional_entities list instead of removing filter
+                        if entity not in pybids_inputs[input_type]["optional_entities"]:
+                            pybids_inputs[input_type]["optional_entities"].append(
+                                entity
+                            )
+                        # Remove any existing filter for this entity
                         pybids_inputs[input_type]["filters"].pop(entity, None)
                     else:
                         pybids_inputs[input_type]["filters"][entity] = filter_

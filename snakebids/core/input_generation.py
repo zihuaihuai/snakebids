@@ -596,7 +596,24 @@ def _get_component(
     except FilterSpecError as err:
         raise err.get_config_error(input_name) from err
 
+    # Get optional entities for this component
+    optional_entities = component.get("optional_entities", [])
+
     for img in matching_files:
+        # Check if this file has all optional entities
+        # If any optional entity is missing, skip this file entirely
+        if optional_entities:
+            missing_optional = [
+                entity for entity in optional_entities if entity not in img.entities
+            ]
+            if missing_optional:
+                _logger.debug(
+                    "Skipping file %s due to missing optional entities: %s",
+                    img.path,
+                    missing_optional,
+                )
+                continue
+
         wildcards: list[str] = [
             wildcard
             for wildcard in set(component.get("wildcards", []))
