@@ -19,6 +19,34 @@ Indexing of large datasets can be a time-consuming process. Leveraging the funct
 
 The boilerplate app starts with the validator plugin enabled - without it, validation is not performed. By default, this feature uses the command-line (node.js) version of the [validator](https://www.npmjs.com/package/bids-validator). If this is not found to be installed on the system, the `pybids` version of validation will be performed instead. To opt-out of validation, invoke the `--skip-bids-validation` flag. Details related to using and creating plugins can be found on the [plugins](/bids_app/plugins) page.
 
+## Filtering Inputs
+
+Snakebids provides powerful command-line filtering options through the ComponentEdit plugin, allowing you to filter BIDS inputs without modifying the configuration file. This is particularly useful for testing workflows on subsets of data or excluding problematic files.
+
+### Filter Options
+
+- **Exact matching**: `--filter_<component>_<entity> value1 value2 ...`
+- **Wildcard patterns**: `--wildcard_<component>_<entity> "pattern*"`
+- **Optional entities**: `--optional_<component>_<entity>`
+
+### Examples
+
+```bash
+# Process only specific subjects
+run.py /data /output participant --filter_bold_sub 01 02 03
+
+# Process only baseline sessions using wildcards
+run.py /data /output participant --wildcard_bold_ses "*baseline*"
+
+# Exclude subjects missing run numbers
+run.py /data /output participant --optional_bold_run
+
+# Combine multiple filters
+run.py /data /output participant --filter_bold_task rest --optional_bold_run
+```
+
+For more details on filtering options, see the [configuration documentation](/bids_app/config#ComponentEdit).
+
 ## Workflow mode
 
 Snakebids apps use a BIDS app CLI, giving great flexibility when switching datasets. However, when developing a Snakebids app or when running the app repeatedly on the same dataset, it can be more convenient to directly call the Snakemake CLI. Snakebids facilitates this using workflow mode.
