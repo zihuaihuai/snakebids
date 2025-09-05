@@ -316,7 +316,9 @@ class TestUpdateNamespace:
                     assert config[comp].get("filters", {})[entity] == filter_
 
     @given(config=sb_st.inputs_configs(wildcards=False, paths=False))
-    def test_optional_filter_removes_filters(self, config: InputsConfig):
+    def test_optional_filter_removes_filters_and_adds_optional_entities(
+        self, config: InputsConfig
+    ):
         comp_edit = ComponentEdit()
         namespace_orig = {
             comp: {
@@ -328,8 +330,12 @@ class TestUpdateNamespace:
         }
         namespace = self.make_namespace(namespace_orig)  # type: ignore
         comp_edit.update_cli_namespace(namespace, {"pybids_inputs": config})
-        for conf in config.values():
+        for comp, conf in config.items():
+            # Filters should be removed for optional entities
             assert conf.get("filters", {}) == {}
+            # Optional entities should be added
+            original_entities = list(namespace_orig[comp]["filters"].keys())
+            assert set(conf.get("optional_entities", [])) == set(original_entities)
 
     @given(configs=two_configs(filters=False, paths=False))
     def test_wildcards_are_appended(self, configs: tuple[InputsConfig, InputsConfig]):

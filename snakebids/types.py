@@ -59,6 +59,14 @@ class InputConfig(TypedDict, total=False):
     If the entity is not found, it will be ignored.
     """
     custom_path: str
+    optional_entities: list[str]
+    """Entities that are optional for this component.
+
+    If a subject doesn't have any of these entities, that subject will be skipped
+    entirely for this component. This is different from filters - filters control
+    which specific values are allowed, while optional_entities controls which
+    subjects are included based on entity presence.
+    """
 
 
 class BinaryOperator(Protocol, Generic[_T_contra, _S_co]):

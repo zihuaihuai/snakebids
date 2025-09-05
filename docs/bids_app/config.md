@@ -109,7 +109,87 @@ In other words, `get` is the default filtering method.
 
 The value of `wildcards` should be a list of BIDS entities. Snakebids collects the values of any entities specified and saves them in the {attr}`entities <snakebids.BidsComponent.entities>` and {attr}`~snakebids.BidsComponent.zip_lists` entries of the corresponding {class}`BidsComponent <snakebids.BidsComponent>`. In other words, these are the entities to be preserved in output paths derived from the input being described. Placing an entity in `wildcards` does not require the entity be present. If an entity is not found, it will be left out of {attr}`entities <snakebids.BidsComponent.entities>`. To require the presence of an entity, place it under `filters` set to `true`.
 
-In the following (YAML-formatted) example, the `bold` input type is specified. BIDS files with the datatype `func`, suffix `bold`, and extension `.nii.gz` will be grabbed, and the `subject`, `session`, `acquisition`, `task`, and `run` entities of those files will be left as wildcards. The `task` entity must be present, but there must not be any `desc`.
+#### Optional Entities
+
+```{versionadded} 0.15.0
+```
+
+The value of `optional_entities` should be a list of BIDS entities. This field controls which subjects are included in the component based on entity presence. When an entity is marked as optional, **entire subjects** that lack this entity will be excluded from the component.
+
+This is different from regular filtering:
+- **Regular filtering** (`entity: value`): Only includes files with specific values for that entity
+- **Boolean filtering** (`entity: true`): Only includes files that have the entity (any value)
+- **Optional filtering** (`optional_entities: [entity]`): **Excludes entire subjects** that don't have the entity
+
+For example, consider a dataset where some subjects have sessions and others don't:
+- `sub-001`: has `ses-01`, `ses-02`
+- `sub-002`: has `ses-01`, `ses-02`
+- `sub-003`: no sessions
+- `sub-004`: no sessions
+
+With `session` in `optional_entities`:
+- **Included**: `sub-001 ses-01`, `sub-001 ses-02`, `sub-002 ses-01`, `sub-002 ses-02`
+- **Excluded**: `sub-003`, `sub-004` (because they lack the `session` entity)
+
+This filtering happens at the subject level during input generation and is useful when you want to analyze only subjects that have certain data types available.
+
+```yaml
+pybids_inputs:
+  bold:
+    filters:
+      suffix: 'bold'
+      extension: '.nii.gz'
+      datatype: 'func'
+    wildcards:
+      - subject
+      - session
+      - task
+      - run
+    optional_entities:
+      - session  # Exclude subjects without sessions
+```
+
+Optional entities can also be specified via the command line using the filter syntax (see [ComponentEdit plugin documentation](#ComponentEdit) for details).
+
+```{note}
+Optional entity filtering is different from [snakenull](#) functionality:
+- **Optional filtering**: Excludes subjects missing optional entities
+- **Snakenull**: Includes all subjects but adds placeholder values for missing entities
+```
+
+## ComponentEdit Plugin
+
+The ComponentEdit plugin provides command-line filtering capabilities for BIDS components. It adds several command-line options that allow users to filter inputs without modifying the configuration file.
+
+### Filter Options
+
+The plugin adds the following command-line options:
+
+- `--filter_<component>_<entity>`: Filter files to include only those with the specified entity value(s)
+- `--wildcard_<component>_<entity>`: Use wildcard patterns to filter entity values
+- `--optional_<component>_<entity>`: Mark an entity as optional (files missing this entity will be excluded)
+
+Where `<component>` is the name of a BIDS component (e.g., `bold`, `T1w`) and `<entity>` is a BIDS entity name (e.g., `sub`, `ses`, `task`).
+
+### Examples
+
+```bash
+# Filter T1w images to only include specific subjects
+snakebids_app --filter_T1w_sub 01 02 03
+
+# Use wildcards to filter sessions
+snakebids_app --wildcard_T1w_ses "*baseline*"
+
+# Mark the run entity as optional for bold data
+snakebids_app --optional_bold_run
+
+# Combine multiple filters
+snakebids_app --filter_bold_task rest --optional_bold_run --filter_bold_sub 01 02
+```
+
+The filters are applied in the order they are processed, and all specified filters must be satisfied for a file to be included in the results.
+
+In the following (YAML-formatted) example, the `bold` input type is specified. BIDS files with the datatype `func`, suffix `bold`, and extension `.nii.gz` will be grabbed, and the `subject`, `session`, `acquisition`, `task`, and `run` entities of those files will be left as wildcards. The `task` entity must be present, but there must not be any `desc`. Additionally, subjects without sessions will be excluded due to the `optional_entities` specification.
 
 ```yaml
 pybids_inputs:
@@ -126,6 +206,8 @@ pybids_inputs:
       - acquisition
       - task
       - run
+    optional_entities:
+      - session
 ```
 
 ### `pybidsdb_dir`
