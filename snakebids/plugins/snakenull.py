@@ -177,73 +177,60 @@ def generate_inputs_with_snakenull(
     dict[str, Any]
         Generated inputs with snakenull normalization applied where needed
     """
-    try:
-        # Try normal generation first
+
+    # Check if snakenull is enabled in config
+    snakenull_config = kwargs.get("snakenull", {})
+    if not snakenull_config.get("enabled", False):
+        # Snakenull disabled, use normal generation
         return generate_inputs(bids_dir=bids_dir, pybids_inputs=pybids_inputs, **kwargs)
 
-    except Exception as e:
-        if "Multiple path templates" not in str(e):
-            # Different error, re-raise
-            raise e
+    print("[snakenull] Snakenull enabled, checking for heterogeneous datasets...")
 
-        print("[snakenull] Detected heterogeneous dataset, applying workaround...")
-        print(f"[snakenull] Original error: {e!s}")
+    # Strategy: Always use manual collection when snakenull is enabled
+    # This ensures we find ALL files, not just those matching a single template
+    results = {}
 
-        # Strategy: Generate inputs for each component separately with different approaches
-        results = {}
+    for component_name, component_config in pybids_inputs.items():
+        print(f"[snakenull] Processing component: {component_name}")
 
-        for component_name, component_config in pybids_inputs.items():
-            print(f"[snakenull] Processing component: {component_name}")
+        # Use manual collection to ensure we get all files
+        manual_result = _collect_files_manually(
+            bids_dir, component_name, component_config
+        )
+        if manual_result:
+            results.update(manual_result)
+            print(f"[snakenull] Manual collection succeeded for {component_name}")
+        else:
+            print(f"[snakenull] Manual collection failed for {component_name}")
 
+            # Fall back to normal generation for this component
             try:
-                # Try with the original config first
                 single_component_inputs = {component_name: component_config}
                 component_result = generate_inputs(
                     bids_dir=bids_dir, pybids_inputs=single_component_inputs, **kwargs
                 )
                 results.update(component_result)
-                print(f"[snakenull] Component {component_name} processed successfully")
+                print(f"[snakenull] Fallback succeeded for {component_name}")
+            except Exception as fallback_error:
+                print(
+                    f"[snakenull] Fallback also failed for {component_name}: {fallback_error}"
+                )
 
-            except Exception as component_error:
-                if "Multiple path templates" in str(component_error):
-                    print(
-                        f"[snakenull] Component {component_name} has heterogeneous patterns, applying manual collection..."
-                    )
+    print(f"[snakenull] Final results summary:")
+    for comp_name, comp_data in results.items():
+        if isinstance(comp_data, dict):
+            entities = comp_data
+        elif hasattr(comp_data, "entities"):
+            entities = comp_data.entities
+        else:
+            entities = {}
 
-                    # Manual file collection and entity extraction
-                    manual_result = _collect_files_manually(
-                        bids_dir, component_name, component_config
-                    )
-                    if manual_result:
-                        results.update(manual_result)
-                        print(
-                            f"[snakenull] Manual collection succeeded for {component_name}"
-                        )
-                    else:
-                        print(
-                            f"[snakenull] Manual collection failed for {component_name}"
-                        )
+        print(f"  {comp_name}: {len(entities.get('path', []))} files")
+        for entity, values in entities.items():
+            if entity != "path":
+                print(f"    {entity}: {values}")
 
-                else:
-                    print(
-                        f"[snakenull] Component {component_name} failed with different error: {component_error}"
-                    )
-
-        print(f"[snakenull] Final results summary:")
-        for comp_name, comp_data in results.items():
-            if isinstance(comp_data, dict):
-                entities = comp_data
-            elif hasattr(comp_data, "entities"):
-                entities = comp_data.entities
-            else:
-                entities = {}
-
-            print(f"  {comp_name}: {len(entities.get('path', []))} files")
-            for entity, values in entities.items():
-                if entity != "path":
-                    print(f"    {entity}: {values}")
-
-        return results
+    return results
 
 
 def _collect_files_manually(
@@ -332,7 +319,7 @@ def _collect_files_manually(
     # Normalize entities by adding fake values for missing entities
     # This ensures all files have the same template pattern
     normalized_entity_lists = {"path": entity_lists["path"]}
-    
+
     for entity, values in entity_lists.items():
         if entity != "path":
             # Replace "null" values with fake "snakenull" values to create uniform templates
@@ -343,11 +330,13 @@ def _collect_files_manually(
                 else:
                     normalized_values.append(val)
             normalized_entity_lists[entity] = normalized_values
-            
+
             # Report what we're doing
             null_count = sum(1 for v in values if v == "null")
             if null_count > 0:
-                print(f"[snakenull] Normalized {null_count} missing '{entity}' entities to 'snakenull'")
+                print(
+                    f"[snakenull] Normalized {null_count} missing '{entity}' entities to 'snakenull'"
+                )
 
     # Create BidsComponent
     try:
