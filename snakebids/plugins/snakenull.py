@@ -58,10 +58,10 @@ def apply_snakenull_to_inputs(inputs: dict[str, Any]) -> dict[str, Any]:
 
 
 def normalize_with_snakenull(zip_lists: dict[str, list]) -> dict[str, list]:
-    """Normalize zip_lists using snakenull logic.
+    """Normalize zip_lists using selective snakenull logic.
 
-    This handles heterogeneous BIDS datasets by ensuring all entity combinations
-    have consistent representations, adding null values where needed.
+    This handles heterogeneous BIDS datasets by only normalizing missing entities
+    within EXISTING file combinations, rather than creating false combinations.
 
     Parameters
     ----------
@@ -71,7 +71,7 @@ def normalize_with_snakenull(zip_lists: dict[str, list]) -> dict[str, list]:
     Returns
     -------
     dict
-        Normalized zip_lists with snakenull applied
+        Normalized zip_lists with snakenull applied to missing entities only
     """
     if not zip_lists:
         return zip_lists
@@ -81,56 +81,39 @@ def normalize_with_snakenull(zip_lists: dict[str, list]) -> dict[str, list]:
     if not entity_keys:
         return zip_lists
 
-    # Create normalized structure
-    normalized = {key: [] for key in zip_lists.keys()}
+    # Create normalized structure - start with copy of original
+    import copy
+    normalized = copy.deepcopy(zip_lists)
 
-    # Get unique combinations of all entities
-    from itertools import product
-
-    # First, find all unique values for each entity
-    unique_values = {}
+    # Find all entities that exist across all files
+    all_entities = set()
     for key in entity_keys:
-        # Handle None values by converting to string representation
         values = zip_lists[key]
-        clean_values = []
         for val in values:
-            if val is None:
-                clean_values.append("snakenull")  # Convert None to snakenull
-            else:
-                clean_values.append(str(val))
-        unique_values[key] = sorted(set(clean_values))
+            if val is not None:
+                all_entities.add(key)
+                break
 
-    # Generate all possible combinations
-    all_combinations = list(product(*[unique_values[key] for key in entity_keys]))
-
-    # Create a mapping from combination to path (if it exists)
-    existing_combinations = {}
-    for i in range(len(zip_lists[entity_keys[0]])):
-        # Convert None values to "snakenull" for consistency
-        combo_values = []
+    # For each file combination, ensure all entities have values
+    num_files = len(zip_lists[entity_keys[0]]) if entity_keys else 0
+    
+    for i in range(num_files):
         for key in entity_keys:
-            val = zip_lists[key][i]
-            if val is None:
-                combo_values.append("snakenull")
+            if i < len(normalized[key]):
+                val = normalized[key][i]
+                # Convert None to "snakenull" for consistency
+                if val is None:
+                    normalized[key][i] = "snakenull"
+                else:
+                    normalized[key][i] = str(val)
             else:
-                combo_values.append(str(val))
-        combo = tuple(combo_values)
-        if "path" in zip_lists and i < len(zip_lists["path"]):
-            existing_combinations[combo] = zip_lists["path"][i]
+                # Extend list if needed
+                normalized[key].append("snakenull")
 
-    # Build normalized output
-    for combo in all_combinations:
-        # Add entity values
-        for j, key in enumerate(entity_keys):
-            normalized[key].append(combo[j])
-
-        # Add path (existing or null)
-        if "path" in zip_lists:
-            if combo in existing_combinations:
-                normalized["path"].append(existing_combinations[combo])
-            else:
-                # Use snakenull for missing combinations
-                normalized["path"].append("SNAKENULL")
+        # Ensure all entity lists have the same length
+        for key in entity_keys:
+            while len(normalized[key]) < num_files:
+                normalized[key].append("snakenull")
 
     return normalized
 
@@ -194,7 +177,7 @@ class SnakenullPlugin(PluginBase):
             return
 
         print("Applying snakenull normalization to inputs...")
-        
+
         # Debug: Print original inputs
         print("DEBUG: Original pybids_inputs structure:")
         for component_name, component_data in config["pybids_inputs"].items():

@@ -1,4 +1,4 @@
-S#!/usr/bin/env python3
+S  #!/usr/bin/env python3
 from pathlib import Path
 from snakebids import bidsapp, plugins
 
