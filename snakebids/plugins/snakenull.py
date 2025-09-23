@@ -348,12 +348,10 @@ def _collect_files_manually(
                 else:
                     entities[entity] = "null"
 
-        # Add to entity lists
+        # Add this file's specific entity combination to the lists
+        # This maintains the correspondence: each index represents one actual file
         for entity in wildcards:
-            if entity in entities:
-                entity_lists[entity].append(entities[entity])
-            else:
-                entity_lists[entity].append("null")
+            entity_lists[entity].append(entities.get(entity, "null"))
         entity_lists["path"].append(str(file_path))
 
     if not entity_lists["path"]:
@@ -392,24 +390,37 @@ def _collect_files_manually(
         zip_lists = {k: v for k, v in normalized_entity_lists.items() if k != "path"}
         
         # Create a complete path template by ensuring all zip_lists entities are represented
-        # Start with the sample path and systematically replace or add wildcards
+        # Use a more systematic approach to avoid duplicate entities
         
-        # First pass: replace existing entity values with wildcards
+        # Start with the sample path
+        path_template = str(sample_path)
+        
+        # Replace ALL entity values with wildcards, including 'snakenull' values
         for entity, values in zip_lists.items():
             if values:
                 entity_value = values[0]
-                if entity_value != "snakenull":
-                    # Replace actual values like "MPNphantom" with "{subject}"
-                    # Handle both filename patterns and directory patterns
-                    if entity == "subject":
-                        path_template = path_template.replace(f"sub-{entity_value}", f"sub-{{{entity}}}")
-                    elif entity == "session":
-                        path_template = path_template.replace(f"ses-{entity_value}", f"ses-{{{entity}}}")
-                    elif entity in ["acq", "run", "part", "task", "echo"]:
-                        path_template = path_template.replace(f"{entity}-{entity_value}", f"{entity}-{{{entity}}}")
+                # Handle both real values and snakenull placeholder values
+                entity_patterns_to_replace = []
+                
+                if entity == "subject":
+                    entity_patterns_to_replace = [f"sub-{entity_value}"]
+                elif entity == "session":
+                    entity_patterns_to_replace = [f"ses-{entity_value}"]
+                elif entity in ["acq", "run", "part", "task", "echo"]:
+                    entity_patterns_to_replace = [f"{entity}-{entity_value}"]
+                
+                # Replace with wildcard
+                for pattern in entity_patterns_to_replace:
+                    if pattern in path_template:
+                        if entity == "subject":
+                            path_template = path_template.replace(pattern, f"sub-{{{entity}}}")
+                        elif entity == "session":
+                            path_template = path_template.replace(pattern, f"ses-{{{entity}}}")
+                        else:
+                            path_template = path_template.replace(pattern, f"{entity}-{{{entity}}}")
         
-        # Second pass: ensure all zip_lists entities have wildcards in the template
-        # If any entity is missing from the template, add it in BIDS-compliant order
+        # Now ensure ALL zip_lists entities are represented as wildcards
+        # If any entity is still missing, add it in BIDS-compliant order
         missing_entities = []
         for entity in zip_lists.keys():
             if f"{{{entity}}}" not in path_template:
@@ -417,7 +428,6 @@ def _collect_files_manually(
         
         if missing_entities:
             # Add missing entities in BIDS-standard order just before the file extension
-            # Standard BIDS entity order for anatomical files:
             bids_order = ["subject", "session", "acq", "ce", "rec", "run", "mod", "part"]
             ordered_missing = [e for e in bids_order if e in missing_entities]
             # Add any remaining entities not in standard order
