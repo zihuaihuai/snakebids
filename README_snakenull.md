@@ -7,13 +7,13 @@ This implements snakenull functionality as a standalone "plugin" that can be app
 Snakenull is a normalization system that enables uniform processing of heterogeneous BIDS datasets. It works by:
 
 1. **Identifying** files with different entity patterns (some have `run`, others don't; some have `acquisition`, others don't)
-2. **Normalizing** these patterns by filling missing entities with placeholder values (default: "snakenull")  
+2. **Normalizing** these patterns by filling missing entities with placeholder values (default: "snakenull")
 3. **Creating** a unified template that allows each file to be processed independently in parallel
 
 ## Key Benefits
 
 - ✅ **Parallel Processing**: Each file runs independently with the same Snakemake rule
-- ✅ **Uniform Interface**: No complex conditional logic in workflows  
+- ✅ **Uniform Interface**: No complex conditional logic in workflows
 - ✅ **BIDS Compliant**: Preserves BIDS entity structure
 - ✅ **No Core Changes**: Works as post-processing on existing snakebids outputs
 
@@ -22,7 +22,7 @@ Snakenull is a normalization system that enables uniform processing of heterogen
 **Before Snakenull** (heterogeneous patterns):
 ```
 sub-01_T1w.nii.gz                           # Basic file
-sub-01_ses-01_T1w.nii.gz                    # Has session  
+sub-01_ses-01_T1w.nii.gz                    # Has session
 sub-01_ses-01_acq-MPRAGE_T1w.nii.gz         # Has session + acquisition
 sub-01_acq-MPRAGE_T1w.nii.gz                # Has acquisition only
 ```
@@ -30,7 +30,7 @@ sub-01_acq-MPRAGE_T1w.nii.gz                # Has acquisition only
 **After Snakenull** (unified processing):
 ```
 sub-01_ses-snakenull_acq-snakenull_T1w_processed.nii.gz
-sub-01_ses-01_acq-snakenull_T1w_processed.nii.gz  
+sub-01_ses-01_acq-snakenull_T1w_processed.nii.gz
 sub-01_ses-01_acq-MPRAGE_T1w_processed.nii.gz
 sub-01_ses-snakenull_acq-MPRAGE_T1w_processed.nii.gz
 ```
@@ -45,7 +45,7 @@ from snakenull_standalone import apply_snakenull_normalization
 
 # 1. Generate inputs as usual
 inputs = generate_inputs(
-    bids_dir=config["bids_dir"], 
+    bids_dir=config["bids_dir"],
     pybids_inputs=config["pybids_inputs"]
 )
 
@@ -60,7 +60,7 @@ normalized_inputs = apply_snakenull_normalization(inputs, snakenull_config)
 
 # 3. Use in Snakemake rules
 rule process_t1w:
-    input: 
+    input:
         normalized_inputs["t1w"].path
     output:
         "results/sub-{subject}_ses-{session}_acquisition-{acquisition}_run-{run}_part-{part}_T1w_processed.nii.gz"
@@ -71,7 +71,7 @@ rule process_t1w:
 ## Configuration Options
 
 - `enabled`: Turn snakenull on/off (default: True)
-- `label`: Placeholder value for missing entities (default: "snakenull")  
+- `label`: Placeholder value for missing entities (default: "snakenull")
 - `scope`: Which entities to normalize - "all" or list of entity names
 
 ## Test with Real Dataset

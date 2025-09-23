@@ -41,7 +41,7 @@ def main():
             SnakenullPlugin(),
         ]
     )
-    
+
     # Run the app - snakenull will be applied automatically
     app.run()
 

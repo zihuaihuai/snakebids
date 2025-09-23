@@ -77,7 +77,7 @@ app.run()  # Snakenull now runs automatically
   "dwi": {
     "zip_lists": {
       "subject": ["01", "01", "02", "02"],
-      "session": ["01", "02", "01", "02"],  
+      "session": ["01", "02", "01", "02"],
       "run": ["1", "1", "1", "1"],
       "path": [
         "/data/sub-01/ses-01/dwi/sub-01_ses-01_run-1_dwi.nii.gz",
@@ -154,7 +154,7 @@ To integrate with your current setup:
 2. **Update your run.py**: Add the import and plugin to your existing code:
    ```python
    from snakebids_snakenull_plugin import SnakenullPlugin
-   
+
    # In your app creation:
    app = snakebids.app(
        plugins=[

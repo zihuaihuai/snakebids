@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Snakebids app with snakenull plugin.
 
-This is a minimal modification to add snakenull normalization to your 
+This is a minimal modification to add snakenull normalization to your
 existing snakebids workflow. Just replace your existing run.py with this file.
 """
 

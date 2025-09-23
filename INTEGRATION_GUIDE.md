@@ -69,7 +69,7 @@ The plugin adds these CLI arguments:
 # Disable snakenull (if you want original behavior)
 python run.py --disable-snakenull [other args...]
 
-# Explicitly enable snakenull (default anyway)  
+# Explicitly enable snakenull (default anyway)
 python run.py --enable-snakenull [other args...]
 ```
 
@@ -128,7 +128,7 @@ SnakenullPlugin(enable=True)
 2. **Or modify your existing run.py** to add:
    ```python
    from snakebids.plugins import SnakenullPlugin
-   
+
    # Add SnakenullPlugin() to your app plugins list
    ```
 
@@ -141,7 +141,7 @@ SnakenullPlugin(enable=True)
 ## Integration Notes
 
 - ✅ **Zero changes to core snakebids code** - True plugin architecture
-- ✅ **Runs at perfect timing** - After input discovery, before snakemake  
+- ✅ **Runs at perfect timing** - After input discovery, before snakemake
 - ✅ **CLI configurable** - Can enable/disable as needed
 - ✅ **Backward compatible** - Existing workflows unchanged unless plugin added
 - ✅ **Package integrated** - Available after `pip install -e .`
