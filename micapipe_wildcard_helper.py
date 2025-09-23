@@ -1,4 +1,68 @@
-"""Helper function for micapipe to handle acq -> acquisition mapping."""
+"""Helper functions for micapipe to handle snakenull plugin compatibility."""
+
+
+def get_structural_input(inputs, wildcards, component_name="t1w"):
+    """Get the correct input file path for given wildcards.
+
+    This function resolves the input file path from the snakenull plugin
+    output to work with micapipe's Snakemake rules.
+
+    Parameters
+    ----------
+    inputs : dict
+        The inputs dict from generate_inputs_with_snakenull
+    wildcards : snakemake.wildcards
+        The wildcards from the Snakemake rule
+    component_name : str
+        The component to get input for (default: "t1w")
+
+    Returns
+    -------
+    str
+        The path to the actual BIDS input file
+    """
+    if component_name not in inputs:
+        raise ValueError(f"Component {component_name} not found in inputs")
+
+    component = inputs[component_name]
+
+    # Handle both dict and BidsComponent formats
+    if hasattr(component, "entities"):
+        # BidsComponent format
+        entities = component.entities
+    else:
+        # Dict format (from snakenull plugin)
+        entities = component
+
+    # Find the index that matches the wildcards
+    for i in range(len(entities["subject"])):
+        match = True
+
+        # Check each wildcard
+        if (
+            hasattr(wildcards, "subject")
+            and entities["subject"][i] != wildcards.subject
+        ):
+            match = False
+        if (
+            hasattr(wildcards, "session")
+            and entities["session"][i] != wildcards.session
+        ):
+            match = False
+        if (
+            hasattr(wildcards, "acquisition")
+            and entities["acquisition"][i] != wildcards.acquisition
+        ):
+            match = False
+        if hasattr(wildcards, "run") and entities["run"][i] != wildcards.run:
+            match = False
+        if hasattr(wildcards, "part") and entities["part"][i] != wildcards.part:
+            match = False
+
+        if match:
+            return entities["path"][i]
+
+    raise ValueError(f"No input file found for wildcards: {wildcards}")
 
 
 def map_wildcards_for_micapipe(inputs, component_name="t1w"):

@@ -286,22 +286,10 @@ def _collect_files_manually(
         filename = file_path.name
         entities = {}
 
-        # Parse standard BIDS entities
+        # Parse standard BIDS entities with robust patterns
         entity_patterns = {
             "subject": r"sub-([a-zA-Z0-9]+)",
             "session": r"ses-([a-zA-Z0-9]+)",
-            "task": r"task-([a-zA-Z0-9]+)",
-            "acq": r"acq-([a-zA-Z0-9]+)",
-            "acquisition": r"acq-([a-zA-Z0-9]+)",  # Map acquisition to acq- pattern
-            "run": r"run-([a-zA-Z0-9]+)",
-            "part": r"part-([a-zA-Z0-9]+)",
-            "echo": r"echo-([a-zA-Z0-9]+)",
-        }
-
-        # Parse standard BIDS entities with more robust patterns
-        entity_patterns = {
-            "subject": r"sub-?([a-zA-Z0-9]+)",  # Match both sub- and sub
-            "session": r"ses-?([a-zA-Z0-9]+)",  # Match both ses- and ses
             "task": r"task-([a-zA-Z0-9]+)",
             "acq": r"acq-([a-zA-Z0-9]+)",
             "acquisition": r"acq-([a-zA-Z0-9]+)",  # Map acquisition to acq- pattern
@@ -315,6 +303,7 @@ def _collect_files_manually(
                 match = re.search(entity_patterns[entity], filename)
                 entities[entity] = match.group(1) if match else "null"
             elif entity == "path":
+                # Store the actual file path directly for path entity
                 entities[entity] = str(file_path)
             else:
                 # For unknown entities, try to extract from path

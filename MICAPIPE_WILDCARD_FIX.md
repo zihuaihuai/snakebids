@@ -22,7 +22,7 @@ for component_name, component_data in inputs.items():
     if isinstance(component_data, dict):
         # Handle dict format from snakenull fallback
         print(f"Processing snakenull dict format for {component_name}")
-        
+
         # Convert to BidsComponent if needed
         try:
             from snakebids import BidsComponent
@@ -31,7 +31,7 @@ for component_name, component_data in inputs.items():
         except Exception as e:
             print(f"Warning: Could not convert {component_name} to BidsComponent: {e}")
             # Keep as dict - rules will need to handle this format
-    
+
     # Debug wildcard values
     entities = component_data.entities if hasattr(component_data, 'entities') else component_data
     print(f"Wildcard values for {component_name}:")
@@ -56,7 +56,7 @@ expand(
     "some/path/sub-{subject}_ses-{session}_acq-{acq}_file.ext",
     zip,
     subject=inputs["t1w"]["subject"],
-    session=inputs["t1w"]["session"], 
+    session=inputs["t1w"]["session"],
     acq=inputs["t1w"]["acq"]
 )
 
