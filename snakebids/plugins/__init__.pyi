@@ -16,6 +16,9 @@ from .pybidsdb import (
 from .snakemake import (
     SnakemakeBidsApp,
 )
+from .snakenull import (
+    SnakenullPlugin,
+)
 from .validator import (
     BidsValidator,
     InvalidBidsError,
@@ -34,6 +37,7 @@ __all__ = [
     "InvalidBidsError",
     "Pybidsdb",
     "SnakemakeBidsApp",
+    "SnakenullPlugin",
     "Version",
     "logger",
 ]

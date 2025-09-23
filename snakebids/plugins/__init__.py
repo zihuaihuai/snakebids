@@ -6,6 +6,7 @@ __submodules__ = [
     "pybidsdb",
     "validator",
     "snakemake",
+    "snakenull",
     "version",
 ]
 
@@ -24,6 +25,7 @@ __all__ = [
     "InvalidBidsError",
     "Pybidsdb",
     "SnakemakeBidsApp",
+    "SnakenullPlugin",
     "Version",
     "logger",
 ]

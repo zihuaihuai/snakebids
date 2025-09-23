@@ -315,11 +315,10 @@ ses-{session}_run-{run}_T1w.nii.gz",
     try:
         dataset = BidsDataset.from_iterable(bids_inputs, layout)
     except DuplicateComponentError as err:
-        msg = (
+        raise ConfigError(
             "Multiple path templates for one component detected. "
             "To enable snakenull, use: --snakenull_config={enabled: True}"
-        )
-        raise ConfigError(msg) from err
+        ) from err
 
     # Apply snakenull post-processing if requested
     if snakenull is not None:
@@ -619,7 +618,7 @@ def _create_bypass_filters(
     return UnifiedFilter(modified_component, modified_postfilters)  # type: ignore[arg-type]
 
 
-def _get_component(  # noqa: PLR0912, PLR0915
+def _get_component(
     bids_layout: BIDSLayout | None,
     component: InputConfig,
     *,
@@ -784,15 +783,17 @@ def _get_component(  # noqa: PLR0912, PLR0915
                 matching_files=matching_files_list,
                 filters=filters,
             )
-
-        msg = (
-            f"Multiple path templates for one component. Use "
-            f"--filter_{input_name} to narrow your search or "
-            f"--wildcards_{input_name} to make the template more generic.\n"
-            f"\tcomponent = {input_name!r}\n"
-            f"\tpath_templates = [\n\t\t" + ",\n\t\t".join(map(repr, paths)) + "\n\t]\n"
-        ).expandtabs(4)
-        raise ConfigError(msg) from err
+        else:
+            msg = (
+                f"Multiple path templates for one component. Use --filter_{input_name} to "
+                f"narrow your search or --wildcards_{input_name} to make the template more "
+                "generic.\n"
+                f"\tcomponent = {input_name!r}\n"
+                f"\tpath_templates = [\n\t\t"
+                + ",\n\t\t".join(map(repr, paths))
+                + "\n\t]\n"
+            ).expandtabs(4)
+            raise ConfigError(msg) from err
 
     if filters.has_empty_postfilter:
         return BidsComponent(
@@ -804,7 +805,7 @@ def _get_component(  # noqa: PLR0912, PLR0915
     )
 
 
-def _handle_multiple_templates_with_snakenull(  # noqa: PLR0912, PLR0915
+def _handle_multiple_templates_with_snakenull(
     *,
     paths: set[str],
     input_name: str,
@@ -814,26 +815,144 @@ def _handle_multiple_templates_with_snakenull(  # noqa: PLR0912, PLR0915
 ) -> BidsComponent:
     """Handle multiple path templates when snakenull is enabled.
 
-    Instead of creating a cartesian product, this creates a single zip_lists entry
-    for each input file, with snakenull placeholders for missing entities.
-    This ensures that only valid file combinations are generated.
+    Creates separate sub-components for each template, then merges them
+    into a unified component with all wildcards from all templates.
+    Missing entities will be filled with a placeholder that snakenull can handle.
     """
     _logger.info(
         "Multiple path templates found for %r, creating unified component "
-        "for snakenull normalization with %d templates and %d files",
+        "for snakenull normalization with %d templates",
         input_name,
         len(paths),
-        len(matching_files),
     )
 
     # Use a temporary placeholder for missing entities
     # Snakenull will replace this with the proper snakenull label later
     missing_placeholder = "__SNAKEBIDS_MISSING__"
 
-    # Get all requested wildcards from the component config
+    # Get all wildcards that we need to handle
+    # Include all requested wildcards - if some files don't have them,
+    # we'll use placeholders
     requested_wildcards = component.get("wildcards", [])
+    actual_wildcards = set(requested_wildcards)
 
-    # Entity name mappings for BIDS aliases
+    # Create zip_lists for all requested wildcards
+    merged_zip_lists: dict[str, list[str]] = {wc: [] for wc in actual_wildcards}
+
+    # Process each file and determine its entity values
+    for img in matching_files:
+        # Get wildcards that exist in this file
+        available_wildcards = [wc for wc in actual_wildcards if wc in img.entities]
+
+        try:
+            # Only parse with wildcards that actually exist in this file
+            if available_wildcards:
+                _, parsed_wildcards = _parse_bids_path(img.path, available_wildcards)
+            else:
+                parsed_wildcards = {}
+
+            # Add values for all wildcards (placeholder for missing ones)
+            for wildcard in actual_wildcards:
+                if wildcard in parsed_wildcards:
+                    merged_zip_lists[wildcard].append(parsed_wildcards[wildcard])
+                else:
+                    # Check for entity name mapping (acq -> acquisition, etc.)
+                    entity_mappings = {
+                        "acq": "acquisition",
+                        "desc": "description",
+                        "rec": "reconstruction",
+                    }
+
+                    found_mapped = False
+                    for short_name, long_name in entity_mappings.items():
+                        if wildcard == long_name and short_name in parsed_wildcards:
+                            merged_zip_lists[wildcard].append(
+                                parsed_wildcards[short_name]
+                            )
+                            found_mapped = True
+                            break
+                        elif wildcard == short_name and long_name in parsed_wildcards:
+                            merged_zip_lists[wildcard].append(
+                                parsed_wildcards[long_name]
+                            )
+                            found_mapped = True
+                            break
+
+                    if not found_mapped:
+                        # Use placeholder for missing entities
+                        merged_zip_lists[wildcard].append(missing_placeholder)
+
+        except Exception as e:
+            _logger.warning("Failed to parse file %s: %s", img.path, e)
+            # Skip this file if parsing fails
+            continue
+
+    # Choose the most generic template as the main template and ensure it includes all wildcards
+    path_lengths = [(len(p.split("{")), p) for p in paths]
+    path_lengths.sort(reverse=True)
+    main_template = path_lengths[0][1]
+
+    # Extract wildcards from the chosen template
+    import re
+
+    template_wildcards = set(re.findall(r"\{(\w+)\}", main_template))
+    zip_lists_wildcards = set(merged_zip_lists.keys())
+
+    # If there are wildcards in zip_lists that aren't in the template, we need to add them
+    missing_wildcards = zip_lists_wildcards - template_wildcards
+    if missing_wildcards:
+        # Add missing wildcards to the template
+        # Insert them before the file extension in a reasonable way
+        parts = main_template.split(".")
+        if len(parts) > 1:
+            # Insert missing wildcards before the extension
+            base_path = parts[0]
+            extension = "." + ".".join(parts[1:])
+
+            # Add each missing wildcard in BIDS entity order, not alphabetical
+            from snakebids.paths import specs
+
+            # Get BIDS entity ordering from the spec
+            spec = specs.latest()
+            bids_order = [entity["entity"] for entity in spec]
+
+            # Sort missing wildcards according to BIDS entity order
+            def get_bids_order(entity: str) -> int:
+                try:
+                    return bids_order.index(entity)
+                except ValueError:
+                    # If not in BIDS spec, put at end
+                    return len(bids_order)
+
+            ordered_wildcards = sorted(missing_wildcards, key=get_bids_order)
+
+            # Add each missing wildcard as entity-{wildcard}
+            for wildcard in ordered_wildcards:
+                base_path += f"_{wildcard}-{{{wildcard}}}"
+
+            main_template = base_path + extension
+        else:
+            # No extension, just append
+            from snakebids.paths import specs
+
+            # Get BIDS entity ordering from the spec
+            spec = specs.latest()
+            bids_order = [entity["entity"] for entity in spec]
+
+            # Sort missing wildcards according to BIDS entity order
+            def get_bids_order(entity: str) -> int:
+                try:
+                    return bids_order.index(entity)
+                except ValueError:
+                    # If not in BIDS spec, put at end
+                    return len(bids_order)
+
+            ordered_wildcards = sorted(missing_wildcards, key=get_bids_order)
+
+            for wildcard in ordered_wildcards:
+                main_template += f"_{wildcard}-{{{wildcard}}}"
+
+    # Also handle entity name mismatches (acq vs acquisition, etc.)
     entity_mappings = {
         "acq": "acquisition",
         "acquisition": "acq",
@@ -843,117 +962,35 @@ def _handle_multiple_templates_with_snakenull(  # noqa: PLR0912, PLR0915
         "reconstruction": "rec",
     }
 
-    # Create zip_lists for all requested wildcards
-    merged_zip_lists: dict[str, list[str]] = {wc: [] for wc in requested_wildcards}
-
-    # Process each file individually and add one entry per file to zip_lists
-    for img in matching_files:
-        # Parse entity values from this specific file
-        file_entities = dict(img.entities)
-
-        # Add one entry to each wildcard list for this file
-        for wildcard in requested_wildcards:
-            value = None
-
-            # First try direct match
-            if wildcard in file_entities:
-                value = file_entities[wildcard]
-            else:
-                # Try entity name mappings (e.g., acq <-> acquisition)
-                for short_name, long_name in entity_mappings.items():
-                    if wildcard == long_name and short_name in file_entities:
-                        value = file_entities[short_name]
-                        break
-                    if wildcard == short_name and long_name in file_entities:
-                        value = file_entities[long_name]
-                        break
-
-            # Use placeholder if entity is missing from this file
-            if value is None:
-                value = missing_placeholder
-
-            merged_zip_lists[wildcard].append(value)
-
-    # Build a unified template that includes all requested wildcards
-    # Start with the most complex template (most wildcards) as base
-    path_lengths = [(len(p.split("{")), p) for p in paths]
-    path_lengths.sort(reverse=True)
-    main_template = path_lengths[0][1]
-
-    # Extract wildcards from the chosen template
-    import re
-
-    # Handle entity name mismatches in the template
-    # Replace entity names in template to match requested wildcards
-    for wildcard in requested_wildcards:
+    # Replace entity names in template to match zip_lists
+    for zip_wildcard in zip_lists_wildcards:
         for template_wildcard, mapped_wildcard in entity_mappings.items():
             if (
-                mapped_wildcard == wildcard
+                mapped_wildcard == zip_wildcard
                 and f"{{{template_wildcard}}}" in main_template
             ):
                 main_template = main_template.replace(
-                    f"{{{template_wildcard}}}", f"{{{wildcard}}}"
+                    f"{{{template_wildcard}}}", f"{{{zip_wildcard}}}"
                 )
 
-    # Add any missing wildcards to the template in BIDS entity order
-    template_wildcards_updated = set(re.findall(r"\{(\w+)\}", main_template))
-    missing_wildcards = set(requested_wildcards) - template_wildcards_updated
-
-    if missing_wildcards:
-        from snakebids.paths import specs
-
-        # Get BIDS entity ordering from the spec
-        spec = specs.latest()
-        bids_order = [entity["entity"] for entity in spec]
-
-        # Sort missing wildcards according to BIDS entity order
-        def get_bids_order(entity: str) -> int:
-            try:
-                return bids_order.index(entity)
-            except ValueError:
-                # If not in BIDS spec, put at end
-                return len(bids_order)
-
-        ordered_wildcards = sorted(missing_wildcards, key=get_bids_order)
-
-        # Add missing wildcards to the template before the file extension
-        parts = main_template.split(".")
-        if len(parts) > 1:
-            base_path = parts[0]
-            extension = "." + ".".join(parts[1:])
-
-            for wildcard in ordered_wildcards:
-                base_path += f"_{wildcard}-{{{wildcard}}}"
-
-            main_template = base_path + extension
-        else:
-            # No extension, just append
-            for wildcard in ordered_wildcards:
-                main_template += f"_{wildcard}-{{{wildcard}}}"
-
-    # Remove any wildcards from template that aren't in our requested wildcards
+    # Final verification: ensure the template only contains wildcards that exist in zip_lists
+    # Remove any wildcards from template that don't have corresponding zip_lists
     template_wildcards_final = set(re.findall(r"\{(\w+)\}", main_template))
-    invalid_wildcards = template_wildcards_final - set(requested_wildcards)
+    invalid_wildcards = template_wildcards_final - zip_lists_wildcards
 
     if invalid_wildcards:
         # Remove invalid wildcards and their surrounding context
         for invalid_wc in invalid_wildcards:
+            # Remove patterns like "_entity-{wildcard}" or "{wildcard}"
             patterns_to_remove = [
                 f"_{invalid_wc}-{{{invalid_wc}}}",
                 f"{{{invalid_wc}}}",
-                f"_{invalid_wc}{{{invalid_wc}}}",
+                f"_{invalid_wc}{{{invalid_wc}}}",  # Handle cases without dash
             ]
             for pattern in patterns_to_remove:
                 if pattern in main_template:
                     main_template = main_template.replace(pattern, "")
                     break
-
-    _logger.info(
-        "Created unified template for %r: %s with %d files",
-        input_name,
-        main_template,
-        len(merged_zip_lists[requested_wildcards[0]]) if requested_wildcards else 0,
-    )
 
     # Create the component
     component_obj = BidsComponent(
