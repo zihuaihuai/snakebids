@@ -329,12 +329,24 @@ def _collect_files_manually(
     if not entity_lists["path"]:
         return {}
 
+    # Filter out entities that only have "null" values
+    filtered_entity_lists = {"path": entity_lists["path"]}
+    for entity, values in entity_lists.items():
+        if entity != "path":
+            # Keep entity only if it has at least one non-null value
+            if any(val != "null" for val in values):
+                filtered_entity_lists[entity] = values
+            else:
+                print(
+                    f"[snakenull] Filtering out entity '{entity}' - only null values found"
+                )
+
     # Create BidsComponent
     try:
-        component = BidsComponent(**entity_lists)
+        component = BidsComponent(**filtered_entity_lists)
         print(f"[snakenull] Created BidsComponent for {component_name}")
         print(
-            f"[snakenull] Entity summary: {[(k, len(v)) for k, v in entity_lists.items() if k != 'path']}"
+            f"[snakenull] Entity summary: {[(k, len(v)) for k, v in filtered_entity_lists.items() if k != 'path']}"
         )
         return {component_name: component}
     except Exception:
@@ -343,9 +355,9 @@ def _collect_files_manually(
             f"[snakenull] BidsComponent creation failed, using BidsComponentWrapper for {component_name}"
         )
         print(
-            f"[snakenull] Entity summary: {[(k, len(v)) for k, v in entity_lists.items() if k != 'path']}"
+            f"[snakenull] Entity summary: {[(k, len(v)) for k, v in filtered_entity_lists.items() if k != 'path']}"
         )
-        wrapper = BidsComponentWrapper(entity_lists)
+        wrapper = BidsComponentWrapper(filtered_entity_lists)
         return {component_name: wrapper}
 
 
