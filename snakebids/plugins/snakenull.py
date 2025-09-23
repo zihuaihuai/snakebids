@@ -24,7 +24,7 @@ def apply_snakenull_to_inputs(inputs: dict[str, Any]) -> dict[str, Any]:
     Parameters
     ----------
     inputs : dict
-        The inputs dictionary from snakebids config containing zip_lists
+        The inputs dictionary from snakebids config containing zip_lists or wildcards
 
     Returns
     -------
@@ -37,24 +37,94 @@ def apply_snakenull_to_inputs(inputs: dict[str, Any]) -> dict[str, Any]:
     normalized_inputs = copy.deepcopy(inputs)
 
     for component_name, component_data in normalized_inputs.items():
-        if not isinstance(component_data, dict) or "zip_lists" not in component_data:
+        if not isinstance(component_data, dict):
             continue
 
-        zip_lists = component_data["zip_lists"]
-        if not zip_lists:
-            continue
+        # Handle zip_lists structure (traditional snakebids)
+        if "zip_lists" in component_data:
+            zip_lists = component_data["zip_lists"]
+            if zip_lists:
+                # Apply snakenull normalization
+                normalized_zip_lists = normalize_with_snakenull(zip_lists)
+                component_data["zip_lists"] = normalized_zip_lists
 
-        # Apply snakenull normalization
-        normalized_zip_lists = normalize_with_snakenull(zip_lists)
-        component_data["zip_lists"] = normalized_zip_lists
+                # Update other related fields
+                if "path" in component_data:
+                    # Update the path list to match normalized zip_lists
+                    if normalized_zip_lists and "path" in normalized_zip_lists:
+                        component_data["path"] = normalized_zip_lists["path"]
 
-        # Update other related fields
-        if "path" in component_data:
-            # Update the path list to match normalized zip_lists
-            if normalized_zip_lists and "path" in normalized_zip_lists:
-                component_data["path"] = normalized_zip_lists["path"]
+        # Handle wildcards structure (newer snakebids approach)
+        elif "wildcards" in component_data:
+            wildcards = component_data["wildcards"]
+            if wildcards:
+                # Convert wildcards to zip_lists format for normalization
+                zip_lists = convert_wildcards_to_zip_lists(wildcards)
+                if zip_lists:
+                    # Apply snakenull normalization
+                    normalized_zip_lists = normalize_with_snakenull(zip_lists)
+                    # Convert back to wildcards format
+                    component_data["wildcards"] = convert_zip_lists_to_wildcards(normalized_zip_lists)
 
     return normalized_inputs
+
+
+def convert_wildcards_to_zip_lists(wildcards: dict) -> dict[str, list] | None:
+    """Convert snakebids wildcards format to zip_lists format.
+    
+    Parameters
+    ----------
+    wildcards : dict
+        Wildcards dictionary from snakebids component
+        
+    Returns
+    -------
+    dict[str, list] | None
+        zip_lists format dictionary or None if conversion not possible
+    """
+    if not isinstance(wildcards, dict):
+        return None
+        
+    # Extract entity lists from wildcards
+    # This handles the case where wildcards contain lists of values for each entity
+    zip_lists = {}
+    
+    for entity, values in wildcards.items():
+        if isinstance(values, list):
+            zip_lists[entity] = values
+        elif isinstance(values, (str, int)):
+            zip_lists[entity] = [values]
+        else:
+            # Skip non-standard entity types
+            continue
+            
+    return zip_lists if zip_lists else None
+
+
+def convert_zip_lists_to_wildcards(zip_lists: dict[str, list]) -> dict:
+    """Convert zip_lists format back to wildcards format.
+    
+    Parameters
+    ----------
+    zip_lists : dict[str, list]
+        zip_lists format dictionary
+        
+    Returns
+    -------
+    dict
+        Wildcards format dictionary
+    """
+    if not zip_lists:
+        return {}
+        
+    # Convert back to wildcards format
+    wildcards = {}
+    for entity, values in zip_lists.items():
+        if entity == "path":
+            continue  # Skip path as it's not a wildcard
+        wildcards[entity] = values
+        
+    return wildcards
 
 
 def normalize_with_snakenull(zip_lists: dict[str, list]) -> dict[str, list]:
@@ -192,7 +262,13 @@ class SnakenullPlugin(PluginBase):
                         print(f"  Keys: {list(component_data.keys())}")
                         if "zip_lists" in component_data:
                             zip_lists = component_data["zip_lists"]
+                            print("  Structure: zip_lists")
                             for entity, values in zip_lists.items():
+                                print(f"    {entity}: {values}")
+                        elif "wildcards" in component_data:
+                            wildcards = component_data["wildcards"]
+                            print("  Structure: wildcards")
+                            for entity, values in wildcards.items():
                                 print(f"    {entity}: {values}")
                         elif "path" in component_data:
                             print(f"    path: {component_data.get('path', 'N/A')}")
@@ -222,6 +298,24 @@ class SnakenullPlugin(PluginBase):
 
         # Apply snakenull to inputs
         original_inputs = config["pybids_inputs"]
+        
+        # Check if inputs are actually populated
+        has_data = False
+        for component_name, component_data in original_inputs.items():
+            if isinstance(component_data, dict):
+                if "zip_lists" in component_data and component_data["zip_lists"]:
+                    has_data = True
+                    break
+                elif "wildcards" in component_data and component_data["wildcards"]:
+                    has_data = True
+                    break
+        
+        if not has_data:
+            print("DEBUG: No input data found yet - inputs may not be generated")
+            print("DEBUG: This plugin might be running too early in the workflow")
+            print("DEBUG: Available hooks: add_cli_arguments, finalize_config, update_cli_namespace")
+            return
+            
         normalized_inputs = apply_snakenull_to_inputs(original_inputs)
 
         # Update config with normalized inputs
