@@ -384,42 +384,39 @@ def _collect_files_manually(
         sample_path = normalized_entity_lists["path"][0]
         path_template = str(sample_path)
         
-        # CRITICAL FIX: The issue is that BidsComponent deduplicates entity values,
-        # creating a Cartesian product instead of maintaining file-to-entity correspondence.
-        # We need to ensure zip_lists preserves the exact file-to-entity mapping.
+        # FINAL FIX: Use BidsComponent but with properly constructed zip_lists that preserve 
+        # file correspondence. The key insight is that BidsComponent expects zip_lists where
+        # each combination corresponds to an actual file.
         
-        # Prepare zip_lists (exclude 'path') - KEEP FULL LISTS WITH CORRESPONDENCE
+        # Import BidsComponent here since we need it
+        from snakebids import BidsComponent
+        
+        # Prepare zip_lists (exclude 'path') - these maintain exact file-to-entity correspondence
         zip_lists = {k: v for k, v in normalized_entity_lists.items() if k != "path"}
         
-        # Create a complete path template by ensuring all zip_lists entities are represented
-        # Use a more systematic approach to avoid duplicate entities
-        
-        # Start with the sample path
+        # Create path template
+        sample_path = normalized_entity_lists["path"][0]
         path_template = str(sample_path)
         
-        # Replace ALL entity values with wildcards, including 'snakenull' values
+        # Replace entity values with wildcard patterns systematically
         for entity, values in zip_lists.items():
             if values:
-                entity_value = values[0]
-                # Handle both real values and snakenull placeholder values
-                entity_patterns_to_replace = []
+                entity_value = values[0]  # Use first value for template construction
                 
                 if entity == "subject":
-                    entity_patterns_to_replace = [f"sub-{entity_value}"]
+                    pattern = f"sub-{entity_value}"
+                    replacement = f"sub-{{{entity}}}"
                 elif entity == "session":
-                    entity_patterns_to_replace = [f"ses-{entity_value}"]
+                    pattern = f"ses-{entity_value}"
+                    replacement = f"ses-{{{entity}}}"
                 elif entity in ["acq", "run", "part", "task", "echo"]:
-                    entity_patterns_to_replace = [f"{entity}-{entity_value}"]
-                
-                # Replace with wildcard
-                for pattern in entity_patterns_to_replace:
-                    if pattern in path_template:
-                        if entity == "subject":
-                            path_template = path_template.replace(pattern, f"sub-{{{entity}}}")
-                        elif entity == "session":
-                            path_template = path_template.replace(pattern, f"ses-{{{entity}}}")
-                        else:
-                            path_template = path_template.replace(pattern, f"{entity}-{{{entity}}}")
+                    pattern = f"{entity}-{entity_value}"
+                    replacement = f"{entity}-{{{entity}}}"
+                else:
+                    continue
+                    
+                if pattern in path_template:
+                    path_template = path_template.replace(pattern, replacement)
         
         # Now ensure ALL zip_lists entities are represented as wildcards
         # If any entity is still missing, add it in BIDS-compliant order
@@ -458,17 +455,60 @@ def _collect_files_manually(
             
             path_template = base_template + extension
         
-        # CRITICAL: Do NOT use BidsComponent for heterogeneous datasets!
-        # BidsComponent automatically deduplicates entity values and creates a Cartesian product,
-        # which generates phantom file combinations. For heterogeneous datasets, we must preserve
-        # the exact file-to-entity correspondence.
+        # Ensure all required entities are in the path template
+        missing_entities = []
+        for entity in zip_lists.keys():
+            if f"{{{entity}}}" not in path_template:
+                missing_entities.append(entity)
         
-        # Use BidsComponentWrapper which preserves the file-to-entity mapping
-        print(f"[snakenull] Using BidsComponentWrapper for {component_name} (preserves file correspondence)")
-        print(f"[snakenull] Path template: {path_template}")
-        print(f"[snakenull] Entity summary: {[(k, len(v)) for k, v in normalized_entity_lists.items() if k != 'path']}")
-        wrapper = BidsComponentWrapper(normalized_entity_lists)
-        return {component_name: wrapper}
+        if missing_entities:
+            # Add missing entities in BIDS-standard order just before the file extension
+            bids_order = ["subject", "session", "acq", "ce", "rec", "run", "mod", "part"]
+            ordered_missing = [e for e in bids_order if e in missing_entities]
+            # Add any remaining entities not in standard order
+            ordered_missing.extend([e for e in missing_entities if e not in bids_order])
+            
+            # Find insertion point (before extension)
+            if "_T1w.nii.gz" in path_template:
+                base_template = path_template.replace("_T1w.nii.gz", "")
+                extension = "_T1w.nii.gz"
+            elif ".nii.gz" in path_template:
+                base_template = path_template.replace(".nii.gz", "")
+                extension = ".nii.gz"
+            else:
+                # Find last dot for extension
+                parts = path_template.rsplit(".", 1)
+                if len(parts) == 2:
+                    base_template = parts[0]
+                    extension = "." + parts[1]
+                else:
+                    base_template = path_template
+                    extension = ""
+            
+            # Add missing entities
+            for entity in ordered_missing:
+                base_template += f"_{entity}-{{{entity}}}"
+            
+            path_template = base_template + extension
+        
+        # Create BidsComponent with proper file-to-entity correspondence
+        try:
+            component = BidsComponent(
+                name=component_name,
+                path=path_template,
+                zip_lists=zip_lists
+            )
+            print(f"[snakenull] Created BidsComponent for {component_name}")
+            print(f"[snakenull] Path template: {path_template}")
+            print(f"[snakenull] Entity summary: {[(k, len(v)) for k, v in zip_lists.items()]}")
+            print(f"[snakenull] NOTE: Each zip_lists entry corresponds to one real file (no phantom combinations)")
+            return {component_name: component}
+        except Exception as e:
+            print(f"[snakenull] BidsComponent creation failed: {e}")
+            # Fallback to BidsComponentWrapper
+            print(f"[snakenull] Using BidsComponentWrapper fallback for {component_name}")
+            wrapper = BidsComponentWrapper(normalized_entity_lists)
+            return {component_name: wrapper}
     else:
         return {}
 
