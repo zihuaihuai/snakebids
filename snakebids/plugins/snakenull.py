@@ -329,24 +329,32 @@ def _collect_files_manually(
     if not entity_lists["path"]:
         return {}
 
-    # Filter out entities that only have "null" values
-    filtered_entity_lists = {"path": entity_lists["path"]}
+    # Normalize entities by adding fake values for missing entities
+    # This ensures all files have the same template pattern
+    normalized_entity_lists = {"path": entity_lists["path"]}
+    
     for entity, values in entity_lists.items():
         if entity != "path":
-            # Keep entity only if it has at least one non-null value
-            if any(val != "null" for val in values):
-                filtered_entity_lists[entity] = values
-            else:
-                print(
-                    f"[snakenull] Filtering out entity '{entity}' - only null values found"
-                )
+            # Replace "null" values with fake "snakenull" values to create uniform templates
+            normalized_values = []
+            for val in values:
+                if val == "null":
+                    normalized_values.append("snakenull")
+                else:
+                    normalized_values.append(val)
+            normalized_entity_lists[entity] = normalized_values
+            
+            # Report what we're doing
+            null_count = sum(1 for v in values if v == "null")
+            if null_count > 0:
+                print(f"[snakenull] Normalized {null_count} missing '{entity}' entities to 'snakenull'")
 
     # Create BidsComponent
     try:
-        component = BidsComponent(**filtered_entity_lists)
+        component = BidsComponent(**normalized_entity_lists)
         print(f"[snakenull] Created BidsComponent for {component_name}")
         print(
-            f"[snakenull] Entity summary: {[(k, len(v)) for k, v in filtered_entity_lists.items() if k != 'path']}"
+            f"[snakenull] Entity summary: {[(k, len(v)) for k, v in normalized_entity_lists.items() if k != 'path']}"
         )
         return {component_name: component}
     except Exception:
@@ -355,9 +363,9 @@ def _collect_files_manually(
             f"[snakenull] BidsComponent creation failed, using BidsComponentWrapper for {component_name}"
         )
         print(
-            f"[snakenull] Entity summary: {[(k, len(v)) for k, v in filtered_entity_lists.items() if k != 'path']}"
+            f"[snakenull] Entity summary: {[(k, len(v)) for k, v in normalized_entity_lists.items() if k != 'path']}"
         )
-        wrapper = BidsComponentWrapper(filtered_entity_lists)
+        wrapper = BidsComponentWrapper(normalized_entity_lists)
         return {component_name: wrapper}
 
 
