@@ -14,6 +14,49 @@ from snakebids.bidsapp.args import ArgumentGroups
 from snakebids.plugins.base import PluginBase
 
 
+class SnakemakeWildcards:
+    """A wildcards class that supports both dictionary and attribute access."""
+    
+    def __init__(self, wildcard_dict: dict[str, str]):
+        """Initialize with a dictionary of wildcards."""
+        self._wildcards = wildcard_dict
+        # Set attributes for dot notation access (wildcards.subject)
+        for key, value in wildcard_dict.items():
+            setattr(self, key, value)
+    
+    def __getitem__(self, key: str) -> str:
+        """Support dictionary access: wildcards['subject']."""
+        return self._wildcards[key]
+    
+    def __contains__(self, key: str) -> bool:
+        """Support 'in' operator."""
+        return key in self._wildcards
+    
+    def get(self, key: str, default=None):
+        """Support .get() method."""
+        return self._wildcards.get(key, default)
+    
+    def items(self):
+        """Support .items() iteration."""
+        return self._wildcards.items()
+    
+    def keys(self):
+        """Support .keys() method."""
+        return self._wildcards.keys()
+    
+    def values(self):
+        """Support .values() method."""
+        return self._wildcards.values()
+    
+    def __str__(self):
+        """String representation."""
+        return str(self._wildcards)
+    
+    def __repr__(self):
+        """Repr representation."""
+        return f"SnakemakeWildcards({self._wildcards})"
+
+
 class BidsComponentWrapper:
     """A wrapper that makes dictionary data look like a BidsComponent.
 
@@ -31,25 +74,25 @@ class BidsComponentWrapper:
         return self._entities
 
     @property
-    def wildcards(self) -> dict[str, Any]:
+    def wildcards(self) -> SnakemakeWildcards:
         """Return wildcards in the format expected by micapipe code.
 
-        This returns the entities for the first file, which is what
-        the micapipe code expects when accessing inputs['t1w'].wildcards.
+        This returns wildcards that support both dict access (wildcards['subject'])
+        and attribute access (wildcards.subject) like Snakemake's wildcards.
         """
         if (
             not self._entities
             or "path" not in self._entities
             or not self._entities["path"]
         ):
-            return {}
+            return SnakemakeWildcards({})
 
         # Return wildcards for the first file
-        wildcards = {}
+        wildcard_dict = {}
         for entity, values in self._entities.items():
             if entity != "path" and values:
-                wildcards[entity] = values[0]
-        return wildcards
+                wildcard_dict[entity] = values[0]
+        return SnakemakeWildcards(wildcard_dict)
 
     def expand(self, template_func_result=None):
         """Expand templates using the entity data.
