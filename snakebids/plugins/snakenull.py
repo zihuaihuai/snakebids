@@ -14,6 +14,112 @@ from snakebids.bidsapp.args import ArgumentGroups
 from snakebids.plugins.base import PluginBase
 
 
+class BidsComponentWrapper:
+    """A wrapper that makes dictionary data look like a BidsComponent.
+
+    This provides compatibility with existing code that expects BidsComponent
+    methods like .expand() and .wildcards.
+    """
+
+    def __init__(self, entity_dict: dict[str, list[str]]):
+        """Initialize with entity dictionary."""
+        self._entities = entity_dict.copy()
+
+    @property
+    def entities(self) -> dict[str, list[str]]:
+        """Return the entities dictionary."""
+        return self._entities
+
+    @property
+    def wildcards(self) -> dict[str, Any]:
+        """Return wildcards in the format expected by micapipe code.
+
+        This returns the entities for the first file, which is what
+        the micapipe code expects when accessing inputs['t1w'].wildcards.
+        """
+        if (
+            not self._entities
+            or "path" not in self._entities
+            or not self._entities["path"]
+        ):
+            return {}
+
+        # Return wildcards for the first file
+        wildcards = {}
+        for entity, values in self._entities.items():
+            if entity != "path" and values:
+                wildcards[entity] = values[0]
+        return wildcards
+
+    def expand(self, template_func_result=None):
+        """Expand templates using the entity data.
+
+        This method is called by micapipe rules like:
+        inputs['t1w'].expand(get_structural_outputs(inputs, output_dir))
+
+        It returns a list of the expanded results for each file.
+        """
+        if template_func_result is None:
+            return []
+
+        if isinstance(template_func_result, str):
+            # Single template string - expand it for each set of entities
+            return self._expand_template_string(template_func_result)
+        elif isinstance(template_func_result, list):
+            # List of templates - expand each one
+            results = []
+            for template in template_func_result:
+                if isinstance(template, str):
+                    results.extend(self._expand_template_string(template))
+                else:
+                    # For each file, add this non-string result
+                    num_files = len(self._entities.get("path", []))
+                    results.extend([template] * num_files)
+            return results
+        else:
+            # Return as-is for other types, repeated for each file
+            num_files = len(self._entities.get("path", []))
+            return [template_func_result] * num_files
+
+    def _expand_template_string(self, template: str) -> list[str]:
+        """Expand a template string for each set of entities."""
+        if not self._entities or "path" not in self._entities:
+            return []
+
+        results = []
+        num_files = len(self._entities["path"])
+
+        for i in range(num_files):
+            # Get entities for this file index
+            file_entities = {}
+            for entity, values in self._entities.items():
+                if entity != "path" and i < len(values):
+                    file_entities[entity] = values[i]
+
+            # Format the template
+            try:
+                formatted = template.format(**file_entities)
+                results.append(formatted)
+            except KeyError as e:
+                # If template needs entities we don't have, skip
+                print(f"[snakenull] Warning: Template needs entity {e} not available")
+                continue
+
+        return results
+
+    def __getitem__(self, key):
+        """Allow dictionary-style access to entities."""
+        return self._entities[key]
+
+    def __contains__(self, key):
+        """Check if entity exists."""
+        return key in self._entities
+
+    def get(self, key, default=None):
+        """Get entity with default."""
+        return self._entities.get(key, default)
+
+
 def normalize_entities_with_null(
     entity_lists: dict[str, list], null_value: str = "null"
 ) -> dict[str, list]:
@@ -123,6 +229,20 @@ def generate_inputs_with_snakenull(
                         f"[snakenull] Component {component_name} failed with different error: {component_error}"
                     )
 
+        print(f"[snakenull] Final results summary:")
+        for comp_name, comp_data in results.items():
+            if isinstance(comp_data, dict):
+                entities = comp_data
+            elif hasattr(comp_data, "entities"):
+                entities = comp_data.entities
+            else:
+                entities = {}
+
+            print(f"  {comp_name}: {len(entities.get('path', []))} files")
+            for entity, values in entities.items():
+                if entity != "path":
+                    print(f"    {entity}: {values}")
+
         return results
 
 
@@ -172,6 +292,19 @@ def _collect_files_manually(
             "session": r"ses-([a-zA-Z0-9]+)",
             "task": r"task-([a-zA-Z0-9]+)",
             "acq": r"acq-([a-zA-Z0-9]+)",
+            "acquisition": r"acq-([a-zA-Z0-9]+)",  # Map acquisition to acq- pattern
+            "run": r"run-([a-zA-Z0-9]+)",
+            "part": r"part-([a-zA-Z0-9]+)",
+            "echo": r"echo-([a-zA-Z0-9]+)",
+        }
+
+        # Parse standard BIDS entities with more robust patterns
+        entity_patterns = {
+            "subject": r"sub-?([a-zA-Z0-9]+)",  # Match both sub- and sub
+            "session": r"ses-?([a-zA-Z0-9]+)",  # Match both ses- and ses
+            "task": r"task-([a-zA-Z0-9]+)",
+            "acq": r"acq-([a-zA-Z0-9]+)",
+            "acquisition": r"acq-([a-zA-Z0-9]+)",  # Map acquisition to acq- pattern
             "run": r"run-([a-zA-Z0-9]+)",
             "part": r"part-([a-zA-Z0-9]+)",
             "echo": r"echo-([a-zA-Z0-9]+)",
@@ -183,6 +316,18 @@ def _collect_files_manually(
                 entities[entity] = match.group(1) if match else "null"
             elif entity == "path":
                 entities[entity] = str(file_path)
+            else:
+                # For unknown entities, try to extract from path
+                if entity in ["subject", "sub"]:
+                    # Extract from path structure sub-{subject}/ or sub{subject}/
+                    path_match = re.search(r"/sub-?([a-zA-Z0-9]+)/", str(file_path))
+                    entities[entity] = path_match.group(1) if path_match else "null"
+                elif entity in ["session", "ses"]:
+                    # Extract from path structure ses-{session}/ or ses{session}/
+                    path_match = re.search(r"/ses-?([a-zA-Z0-9]+)/", str(file_path))
+                    entities[entity] = path_match.group(1) if path_match else "null"
+                else:
+                    entities[entity] = "null"
 
         # Add to entity lists
         for entity in wildcards:
@@ -198,10 +343,21 @@ def _collect_files_manually(
     # Create BidsComponent
     try:
         component = BidsComponent(**entity_lists)
+        print(f"[snakenull] Created BidsComponent for {component_name}")
+        print(
+            f"[snakenull] Entity summary: {[(k, len(v)) for k, v in entity_lists.items() if k != 'path']}"
+        )
         return {component_name: component}
     except Exception:
-        # Fall back to dict format
-        return {component_name: entity_lists}
+        # Fall back to BidsComponentWrapper format
+        print(
+            f"[snakenull] BidsComponent creation failed, using BidsComponentWrapper for {component_name}"
+        )
+        print(
+            f"[snakenull] Entity summary: {[(k, len(v)) for k, v in entity_lists.items() if k != 'path']}"
+        )
+        wrapper = BidsComponentWrapper(entity_lists)
+        return {component_name: wrapper}
 
 
 class SnakenullPlugin(PluginBase):

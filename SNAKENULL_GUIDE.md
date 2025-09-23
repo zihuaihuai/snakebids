@@ -6,11 +6,11 @@ The **snakenull plugin** successfully solves the "Multiple path templates" error
 
 ## What the Plugin Does
 
-✅ **Detects** heterogeneous BIDS datasets automatically  
-✅ **Handles** files with different entity patterns (some with `run`, some without)  
-✅ **Normalizes** missing entities using `"null"` values  
-✅ **Maintains** full compatibility with existing snakebids workflows  
-✅ **Opt-in** by default - doesn't interfere unless explicitly enabled  
+✅ **Detects** heterogeneous BIDS datasets automatically
+✅ **Handles** files with different entity patterns (some with `run`, some without)
+✅ **Normalizes** missing entities using `"null"` values
+✅ **Maintains** full compatibility with existing snakebids workflows
+✅ **Opt-in** by default - doesn't interfere unless explicitly enabled
 
 ## Installation & Setup
 
@@ -114,7 +114,7 @@ The plugin produces normalized entity lists:
 ```python
 {
     "subject": ["MPN00002", "MPNphantom"],
-    "session": ["v1", "v2"], 
+    "session": ["v1", "v2"],
     "acq": ["mtw", "neuromelaninMTw"],
     "run": ["null", "2"],  # "null" for missing entities
     "part": ["null", "null"],
@@ -217,13 +217,13 @@ rule process_t1w:
 ### Minimal Changes Required
 
 1. **run.py**: Add plugin to plugins list
-2. **Snakefile**: Change `generate_inputs` to `generate_inputs_with_snakenull`  
+2. **Snakefile**: Change `generate_inputs` to `generate_inputs_with_snakenull`
 3. **Rules**: No changes needed (unless you want to handle null values specifically)
 
 ### Backward Compatibility
 
 - ✅ All existing rules work unchanged
-- ✅ All existing wildcards work unchanged  
+- ✅ All existing wildcards work unchanged
 - ✅ All existing `bids()` calls work unchanged
 - ✅ Plugin only activates when needed
 
