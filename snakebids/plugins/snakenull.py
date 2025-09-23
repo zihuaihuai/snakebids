@@ -172,21 +172,53 @@ class SnakenullPlugin(PluginBase):
         if not self.enable:
             return
 
-        # Check if inputs exist in config
-        if "pybids_inputs" not in config:
-            return
-
         print("Applying snakenull normalization to inputs...")
 
-        # Debug: Print original inputs
-        print("DEBUG: Original pybids_inputs structure:")
-        for component_name, component_data in config["pybids_inputs"].items():
-            if isinstance(component_data, dict) and "zip_lists" in component_data:
-                print(f"  Component: {component_name}")
-                zip_lists = component_data["zip_lists"]
-                for entity, values in zip_lists.items():
-                    print(f"    {entity}: {values}")
-                print()
+        # Debug: Print entire config structure to understand what's available
+        print("DEBUG: Available config keys:", list(config.keys()))
+        
+        # Check multiple possible locations for inputs
+        inputs_found = False
+        input_locations = ["pybids_inputs", "inputs", "input_lists"]
+        
+        for location in input_locations:
+            if location in config:
+                print(f"DEBUG: Found inputs in config['{location}']")
+                print(f"DEBUG: {location} structure:")
+                for component_name, component_data in config[location].items():
+                    print(f"  Component: {component_name}")
+                    print(f"  Type: {type(component_data)}")
+                    if isinstance(component_data, dict):
+                        print(f"  Keys: {list(component_data.keys())}")
+                        if "zip_lists" in component_data:
+                            zip_lists = component_data["zip_lists"]
+                            for entity, values in zip_lists.items():
+                                print(f"    {entity}: {values}")
+                        elif "path" in component_data:
+                            print(f"    path: {component_data.get('path', 'N/A')}")
+                    print()
+                inputs_found = True
+                break
+        
+        if not inputs_found:
+            print("DEBUG: No inputs found in expected locations")
+            print("DEBUG: Full config structure:")
+            import pprint
+            pprint.pprint(config)
+            return
+
+        # Check if inputs exist in config
+        if "pybids_inputs" not in config:
+            print("DEBUG: pybids_inputs not found, trying other locations...")
+            # Try to find inputs in other locations
+            for location in input_locations:
+                if location in config:
+                    print(f"DEBUG: Using inputs from {location}")
+                    config["pybids_inputs"] = config[location]
+                    break
+            else:
+                print("DEBUG: No suitable inputs found for normalization")
+                return
 
         # Apply snakenull to inputs
         original_inputs = config["pybids_inputs"]
