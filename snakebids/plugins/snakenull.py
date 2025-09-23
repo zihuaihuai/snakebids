@@ -283,8 +283,6 @@ def _collect_files_manually(
     import re
     from pathlib import Path
 
-    from snakebids import BidsComponent
-
     bids_path = Path(bids_dir)
     filters = component_config.get("filters", {})
     wildcards = component_config.get("wildcards", [])
@@ -386,7 +384,11 @@ def _collect_files_manually(
         sample_path = normalized_entity_lists["path"][0]
         path_template = str(sample_path)
         
-        # Prepare zip_lists (exclude 'path')
+        # CRITICAL FIX: The issue is that BidsComponent deduplicates entity values,
+        # creating a Cartesian product instead of maintaining file-to-entity correspondence.
+        # We need to ensure zip_lists preserves the exact file-to-entity mapping.
+        
+        # Prepare zip_lists (exclude 'path') - KEEP FULL LISTS WITH CORRESPONDENCE
         zip_lists = {k: v for k, v in normalized_entity_lists.items() if k != "path"}
         
         # Create a complete path template by ensuring all zip_lists entities are represented
@@ -456,30 +458,17 @@ def _collect_files_manually(
             
             path_template = base_template + extension
         
-        # Create BidsComponent with proper arguments
-        try:
-            component = BidsComponent(
-                name=component_name,
-                path=path_template,
-                zip_lists=zip_lists
-            )
-            print(f"[snakenull] Created BidsComponent for {component_name}")
-            print(f"[snakenull] Path template: {path_template}")
-            print(
-                f"[snakenull] Entity summary: {[(k, len(v)) for k, v in zip_lists.items()]}"
-            )
-            return {component_name: component}
-        except Exception as e:
-            print(f"[snakenull] BidsComponent creation failed: {e}")
-            # Fall back to BidsComponentWrapper format
-            print(
-                f"[snakenull] Using BidsComponentWrapper for {component_name}"
-            )
-            print(
-                f"[snakenull] Entity summary: {[(k, len(v)) for k, v in normalized_entity_lists.items() if k != 'path']}"
-            )
-            wrapper = BidsComponentWrapper(normalized_entity_lists)
-            return {component_name: wrapper}
+        # CRITICAL: Do NOT use BidsComponent for heterogeneous datasets!
+        # BidsComponent automatically deduplicates entity values and creates a Cartesian product,
+        # which generates phantom file combinations. For heterogeneous datasets, we must preserve
+        # the exact file-to-entity correspondence.
+        
+        # Use BidsComponentWrapper which preserves the file-to-entity mapping
+        print(f"[snakenull] Using BidsComponentWrapper for {component_name} (preserves file correspondence)")
+        print(f"[snakenull] Path template: {path_template}")
+        print(f"[snakenull] Entity summary: {[(k, len(v)) for k, v in normalized_entity_lists.items() if k != 'path']}")
+        wrapper = BidsComponentWrapper(normalized_entity_lists)
+        return {component_name: wrapper}
     else:
         return {}
 
