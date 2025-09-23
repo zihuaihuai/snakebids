@@ -61,12 +61,14 @@ class BidsComponentWrapper:
     """A wrapper that makes dictionary data look like a BidsComponent.
 
     This provides compatibility with existing code that expects BidsComponent
-    methods like .expand() and .wildcards.
+    methods like .expand() and .wildcards, while also supporting attribute-style
+    access for micapipe compatibility.
     """
 
-    def __init__(self, entity_dict: dict[str, list[str]]):
-        """Initialize with entity dictionary."""
+    def __init__(self, entity_dict: dict[str, list[str]], bids_component=None):
+        """Initialize with entity dictionary and optional BidsComponent."""
         self._entities = entity_dict.copy()
+        self._bids_component = bids_component
 
     @property
     def entities(self) -> dict[str, list[str]]:
@@ -100,8 +102,14 @@ class BidsComponentWrapper:
         This method is called by micapipe rules like:
         inputs['t1w'].expand(get_structural_outputs(inputs, output_dir))
 
-        It returns a list of the expanded results for each file.
+        If we have a BidsComponent, delegate to it for proper Snakemake integration.
+        Otherwise, use our fallback expansion method.
         """
+        # If we have a BidsComponent, delegate to it for proper expansion
+        if self._bids_component is not None:
+            return self._bids_component.expand(template_func_result)
+        
+        # Fallback to manual expansion
         if template_func_result is None:
             return []
 
@@ -149,6 +157,12 @@ class BidsComponentWrapper:
                 continue
 
         return results
+
+    def __getattr__(self, name):
+        """Provide attribute-style access to entity values (e.g., component.subject)."""
+        if name in self._entities:
+            return self._entities[name]
+        raise AttributeError(f"'{self.__class__.__name__}' object has no attribute '{name}'")
 
     def __getitem__(self, key):
         """Allow dictionary-style access to entities."""
@@ -499,7 +513,8 @@ def _collect_files_manually(
             
             path_template = base_template + extension
         
-        # Create BidsComponent with proper file-to-entity correspondence
+        # FINAL FIX: Create a BidsComponent for proper Snakemake integration, but wrap it
+        # to provide the attribute-style access that micapipe expects (component.subject)
         try:
             component = BidsComponent(
                 name=component_name,
@@ -510,10 +525,14 @@ def _collect_files_manually(
             print(f"[snakenull] Path template: {path_template}")
             print(f"[snakenull] Entity summary: {[(k, len(v)) for k, v in zip_lists.items()]}")
             print(f"[snakenull] NOTE: Each zip_lists entry corresponds to one real file (no phantom combinations)")
-            return {component_name: component}
+            
+            # Create a wrapper that provides both BidsComponent functionality 
+            # AND attribute-style access for micapipe compatibility
+            wrapper = BidsComponentWrapper(normalized_entity_lists, bids_component=component)
+            return {component_name: wrapper}
         except Exception as e:
             print(f"[snakenull] BidsComponent creation failed: {e}")
-            # Fallback to BidsComponentWrapper
+            # Fallback to BidsComponentWrapper only
             print(f"[snakenull] Using BidsComponentWrapper fallback for {component_name}")
             wrapper = BidsComponentWrapper(normalized_entity_lists)
             return {component_name: wrapper}
