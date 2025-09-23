@@ -263,12 +263,20 @@ def generate_inputs_with_snakenull(
     for comp_name, comp_data in results.items():
         if isinstance(comp_data, dict):
             entities = comp_data
+            file_count = len(entities.get('path', []))
+        elif hasattr(comp_data, "zip_lists"):
+            # BidsComponent - get file count from zip_lists
+            zip_lists = comp_data.zip_lists
+            file_count = len(list(zip_lists.values())[0]) if zip_lists else 0
+            entities = comp_data.entities
         elif hasattr(comp_data, "entities"):
             entities = comp_data.entities
+            file_count = len(entities.get('path', []))
         else:
             entities = {}
+            file_count = 0
 
-        print(f"  {comp_name}: {len(entities.get('path', []))} files")
+        print(f"  {comp_name}: {file_count} files")
         for entity, values in entities.items():
             if entity != "path":
                 print(f"    {entity}: {values}")
