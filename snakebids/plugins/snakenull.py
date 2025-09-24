@@ -191,15 +191,15 @@ class BidsComponentWrapper:
 
 class FileBasedComponent:
     """A component that preserves exact file-to-entity mapping to prevent phantom combinations.
-    
+
     Unlike BidsComponent, this doesn't apply a single template to all files.
     Instead, it stores the exact entities for each file and expands templates
     using only the entities that each file actually has.
     """
-    
+
     def __init__(self, name: str, file_entity_mappings: list[dict[str, str]]):
         """Initialize with exact file-to-entity mappings.
-        
+
         Parameters
         ----------
         name : str
@@ -210,34 +210,34 @@ class FileBasedComponent:
         """
         self.name = name
         self.file_entity_mappings = file_entity_mappings
-        
+
         # Build zip_lists for compatibility
         if not file_entity_mappings:
             self._zip_lists: dict[str, list[str]] = {}
             self._entities: dict[str, list[str]] = {}
             self._wildcards = SnakemakeWildcards({})
             return
-            
+
         # Get all possible entities (excluding 'path')
         all_entities: set[str] = set()
         for mapping in file_entity_mappings:
             all_entities.update(mapping.keys())
-        all_entities.discard('path')
-        
+        all_entities.discard("path")
+
         # Build zip_lists with exact values for each file
         zip_lists: dict[str, list[str]] = {}
         for entity in all_entities:
             zip_lists[entity] = [
-                mapping.get(entity, 'snakenull') for mapping in file_entity_mappings
+                mapping.get(entity, "snakenull") for mapping in file_entity_mappings
             ]
-        
+
         self._zip_lists = zip_lists
-        
+
         # Build entities dict (includes path)
         entities: dict[str, list[str]] = dict(zip_lists)
-        entities['path'] = [mapping.get('path', '') for mapping in file_entity_mappings]
+        entities["path"] = [mapping.get("path", "") for mapping in file_entity_mappings]
         self._entities = entities
-        
+
         # Create wildcards dict for the first file
         if file_entity_mappings:
             first_file = file_entity_mappings[0]
@@ -250,12 +250,12 @@ class FileBasedComponent:
     def zip_lists(self) -> dict[str, list[str]]:
         """Return zip_lists (excludes 'path')."""
         return self._zip_lists
-        
-    @property 
+
+    @property
     def entities(self) -> dict[str, list[str]]:
         """Return entities dict (includes 'path')."""
         return self._entities
-        
+
     @property
     def wildcards(self) -> SnakemakeWildcards:
         """Return wildcards for micapipe compatibility."""
@@ -263,13 +263,13 @@ class FileBasedComponent:
 
     def expand(self, template_func_result=None) -> list:
         """Expand templates using exact file-to-entity mappings.
-        
+
         This is the key method that prevents phantom combinations.
         For each file, it only uses the entities that file actually has.
         """
         if template_func_result is None:
             return []
-            
+
         if isinstance(template_func_result, str):
             return self._expand_template_string(template_func_result)
         elif isinstance(template_func_result, list):
@@ -288,17 +288,17 @@ class FileBasedComponent:
     def _expand_template_string(self, template: str) -> list[str]:
         """Expand template for each file using only its actual entities."""
         results = []
-        
+
         for mapping in self.file_entity_mappings:
             # For this specific file, only use entities it actually has
             # Skip entities that are 'snakenull' (i.e., don't exist in the original file)
             file_entities = {}
-            
+
             for entity, value in mapping.items():
-                if entity != 'path':
+                if entity != "path":
                     file_entities[entity] = value
-            
-            # Format template - but handle missing wildcards gracefully  
+
+            # Format template - but handle missing wildcards gracefully
             try:
                 formatted = template.format(**file_entities)
                 results.append(formatted)
@@ -306,32 +306,38 @@ class FileBasedComponent:
                 # If template needs entities this file doesn't have, skip formatting those parts
                 # This is the key difference from BidsComponent
                 import re
-                
+
                 # Replace missing wildcards with empty strings to avoid phantom entities
                 formatted = template
-                
+
                 # Find all wildcards in template
-                wildcards_in_template = re.findall(r'\{(\w+)\}', template)
-                
+                wildcards_in_template = re.findall(r"\{(\w+)\}", template)
+
                 for wildcard in wildcards_in_template:
                     if wildcard in file_entities:
                         # Replace with actual value
-                        formatted = formatted.replace(f'{{{wildcard}}}', file_entities[wildcard])
+                        formatted = formatted.replace(
+                            f"{{{wildcard}}}", file_entities[wildcard]
+                        )
                     else:
                         # Remove phantom entity entirely (don't add _entity-snakenull)
                         # Look for patterns like _entity-{wildcard} and remove them
-                        pattern = f'_{wildcard}-{{{wildcard}}}'
-                        formatted = re.sub(pattern, '', formatted)
-                        
+                        pattern = f"_{wildcard}-{{{wildcard}}}"
+                        formatted = re.sub(pattern, "", formatted)
+
                         # Also handle bare {wildcard} without prefix
-                        formatted = formatted.replace(f'{{{wildcard}}}', '')
-                
+                        formatted = formatted.replace(f"{{{wildcard}}}", "")
+
                 # Clean up any double underscores or trailing underscores
-                formatted = re.sub(r'_+', '_', formatted)  # Multiple underscores -> single
-                formatted = re.sub(r'_+\.', '.', formatted)  # Remove underscore before extension
-                
+                formatted = re.sub(
+                    r"_+", "_", formatted
+                )  # Multiple underscores -> single
+                formatted = re.sub(
+                    r"_+\.", ".", formatted
+                )  # Remove underscore before extension
+
                 results.append(formatted)
-                
+
         return results
 
 
@@ -608,43 +614,49 @@ def _collect_files_manually(
         from snakebids import BidsComponent
 
         # CRITICAL INSIGHT: For BidsComponent compatibility, the path template must include
-        # ALL entities that appear in zip_lists as wildcards. Create a template that 
+        # ALL entities that appear in zip_lists as wildcards. Create a template that
         # includes all possible entities, even if some files don't have all entities.
-        
+
         # Start with the sample path but make it generic for all entities
-        path_parts = str(sample_path).split('/')
+        path_parts = str(sample_path).split("/")
         filename = path_parts[-1]
-        
+
         # Create a generic template with all entities as wildcards
         # Format: sub-{subject}/ses-{session}/anat/sub-{subject}_ses-{session}_..._T1w.nii.gz
         directory_template = "/".join(path_parts[:-1])  # Everything except filename
-        
+
         # Replace directory parts with wildcards
-        directory_template = directory_template.replace(f"sub-{entities_with_real_values['subject']}", "sub-{subject}")
-        directory_template = directory_template.replace(f"ses-{entities_with_real_values['session']}", "ses-{session}")
-        
+        directory_template = directory_template.replace(
+            f"sub-{entities_with_real_values['subject']}", "sub-{subject}"
+        )
+        directory_template = directory_template.replace(
+            f"ses-{entities_with_real_values['session']}", "ses-{session}"
+        )
+
         # Create filename template with ALL entities as optional wildcards
         filename_template = "sub-{subject}_ses-{session}"
-        
+
         # Add other entities if they exist
-        if 'acq' in zip_lists:
+        if "acq" in zip_lists:
             filename_template += "_acq-{acq}"
-        if 'run' in zip_lists:
-            filename_template += "_run-{run}" 
-        if 'part' in zip_lists:
+        if "run" in zip_lists:
+            filename_template += "_run-{run}"
+        if "part" in zip_lists:
             filename_template += "_part-{part}"
-            
+
         # Add suffix and extension
-        suffix_match = filename.split('_')[-1]  # e.g., "T1w.nii.gz"
+        suffix_match = filename.split("_")[-1]  # e.g., "T1w.nii.gz"
         filename_template += f"_{suffix_match}"
-        
+
         path_template = f"{directory_template}/{filename_template}"
 
-        # CRITICAL: Don't filter zip_lists - BidsComponent needs ALL entities 
+        # CRITICAL: Don't filter zip_lists - BidsComponent needs ALL entities
         # The key insight: if zip_lists contains exact file-to-entity mappings,
         # BidsComponent should not create phantom combinations even with cartesian product logic
-        
-        print(f"[snakenull] Using ALL normalized entities for BidsComponent: {list(zip_lists.keys())}")
+
+        print(
+            f"[snakenull] Using ALL normalized entities for BidsComponent: {list(zip_lists.keys())}"
+        )
         print(f"[snakenull] Path template: {path_template}")
 
         # Use ALL zip_lists entities - no filtering
@@ -652,111 +664,118 @@ def _collect_files_manually(
 
         # CRITICAL FIX: Instead of creating one template with ALL entities,
         # group files by their actual entity pattern and create separate BidsComponents
-        print(f"[snakenull] Grouping files by entity patterns to prevent phantom combinations")
-        
+        print(
+            f"[snakenull] Grouping files by entity patterns to prevent phantom combinations"
+        )
+
         # Group files by their actual entity signature (which entities they have)
         file_groups = {}
-        
+
         for i, file_path in enumerate(normalized_entity_lists["path"]):
             # Create signature based on which entities this file actually has
             signature = []
             file_entities = {}
-            
+
             for entity, values in zip_lists.items():
                 if i < len(values) and values[i] != "snakenull":
                     signature.append(entity)
                     file_entities[entity] = values[i]
-                elif entity in ['subject', 'session']:  # Always include required entities
-                    signature.append(entity) 
-                    file_entities[entity] = values[i] if i < len(values) else "snakenull"
-            
+                elif entity in [
+                    "subject",
+                    "session",
+                ]:  # Always include required entities
+                    signature.append(entity)
+                    file_entities[entity] = (
+                        values[i] if i < len(values) else "snakenull"
+                    )
+
             signature_key = tuple(sorted(signature))
-            
+
             if signature_key not in file_groups:
                 file_groups[signature_key] = {
-                    'files': [],
-                    'entities': {entity: [] for entity in signature}
+                    "files": [],
+                    "entities": {entity: [] for entity in signature},
                 }
-            
-            file_groups[signature_key]['files'].append(file_path)
+
+            file_groups[signature_key]["files"].append(file_path)
             for entity in signature:
-                file_groups[signature_key]['entities'][entity].append(file_entities.get(entity, 'snakenull'))
-        
+                file_groups[signature_key]["entities"][entity].append(
+                    file_entities.get(entity, "snakenull")
+                )
+
         print(f"[snakenull] Found {len(file_groups)} different entity patterns:")
         for sig, group in file_groups.items():
             print(f"  Pattern {sig}: {len(group['files'])} files")
-        
+
         # For simplicity, use the largest group to create the BidsComponent
         # This ensures most files match the template exactly
-        largest_group = max(file_groups.values(), key=lambda g: len(g['files']))
+        largest_group = max(file_groups.values(), key=lambda g: len(g["files"]))
         largest_signature = None
         for sig, group in file_groups.items():
             if group is largest_group:
                 largest_signature = sig
                 break
-        
+
         print(f"[snakenull] Using largest group with pattern {largest_signature}")
-        
+
         # Create path template based on largest group's pattern
-        sample_file = largest_group['files'][0]
-        path_parts = str(sample_file).split('/')
-        filename_parts = path_parts[-1].split('_')
-        
+        sample_file = largest_group["files"][0]
+        path_parts = str(sample_file).split("/")
+        filename_parts = path_parts[-1].split("_")
+
         # Build template with only entities from this pattern
         directory_template = "/".join(path_parts[:-1])
-        
+
         # Replace directory wildcards
-        if 'subject' in largest_signature:
+        if "subject" in largest_signature:
             directory_template = directory_template.replace(
                 f"sub-{largest_group['entities']['subject'][0]}", "sub-{subject}"
             )
-        if 'session' in largest_signature:
+        if "session" in largest_signature:
             directory_template = directory_template.replace(
                 f"ses-{largest_group['entities']['session'][0]}", "ses-{session}"
             )
-        
+
         # Build filename template with only this pattern's entities
         filename_template = "sub-{subject}_ses-{session}"
-        
-        for entity in ['acq', 'run', 'part']:
+
+        for entity in ["acq", "run", "part"]:
             if entity in largest_signature:
                 filename_template += f"_{entity}-{{{entity}}}"
-        
+
         # Add suffix
         suffix = filename_parts[-1]  # e.g., "T1w.nii.gz"
         filename_template += f"_{suffix}"
-        
+
         path_template = f"{directory_template}/{filename_template}"
-        
+
         # Create zip_lists using ONLY files from the largest group
         # This prevents phantom combinations by ensuring all files match the template
         final_zip_lists = {}
         for entity in largest_signature:
             final_zip_lists[entity] = []
-            
+
         # Add only files from the largest group
-        for file_path in largest_group['files']:
+        for file_path in largest_group["files"]:
             for entity in largest_signature:
                 # Find the corresponding entity values for this file
                 file_index = normalized_entity_lists["path"].index(file_path)
                 if entity in zip_lists and file_index < len(zip_lists[entity]):
                     final_zip_lists[entity].append(zip_lists[entity][file_index])
                 else:
-                    final_zip_lists[entity].append('snakenull')
-        
+                    final_zip_lists[entity].append("snakenull")
+
         print(f"[snakenull] Using entities for template: {list(largest_signature)}")
         print(f"[snakenull] Path template: {path_template}")
         print(f"[snakenull] Creating BidsComponent for {component_name}")
         print(f"[snakenull] Found {len(normalized_entity_lists['path'])} actual files")
-        
+
         # Import BidsComponent here since we need it
         from snakebids import BidsComponent
-        
+
         # Create standard BidsComponent - no wrappers or modifications
         component = BidsComponent(
-            name=component_name,
-            zip_lists=final_zip_lists,
-            path=path_template
+            name=component_name, zip_lists=final_zip_lists, path=path_template
         )
         return {component_name: component}
     else:

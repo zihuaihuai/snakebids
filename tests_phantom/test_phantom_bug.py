@@ -77,9 +77,15 @@ def test_phantom_combination_bug():
             combo = {
                 "subject": component.zip_lists["subject"][i],
                 "session": component.zip_lists["session"][i],
-                "acq": component.zip_lists["acq"][i] if "acq" in component.zip_lists else "snakenull",
-                "run": component.zip_lists["run"][i] if "run" in component.zip_lists else "snakenull",
-                "part": component.zip_lists["part"][i] if "part" in component.zip_lists else "snakenull",
+                "acq": component.zip_lists["acq"][i]
+                if "acq" in component.zip_lists
+                else "snakenull",
+                "run": component.zip_lists["run"][i]
+                if "run" in component.zip_lists
+                else "snakenull",
+                "part": component.zip_lists["part"][i]
+                if "part" in component.zip_lists
+                else "snakenull",
             }
 
             # Construct expected filename from combination
