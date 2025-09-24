@@ -177,6 +177,17 @@ class BidsComponentWrapper:
         """Get entity with default."""
         return self._entities.get(key, default)
 
+    @property
+    def zip_lists(self):
+        """Provide zip_lists property for compatibility with BidsComponent."""
+        # Exclude 'path' from zip_lists as per snakebids convention
+        return {k: v for k, v in self._entities.items() if k != "path"}
+
+    @property
+    def entities(self):
+        """Provide entities property for compatibility."""
+        return self._entities
+
 
 def normalize_entities_with_null(
     entity_lists: dict[str, list], null_value: str = "null"
@@ -314,7 +325,12 @@ def _collect_files_manually(
     if "suffix" in filters:
         search_pattern += f"_{filters['suffix']}"
     if "extension" in filters:
-        search_pattern += filters["extension"]
+        extensions = filters["extension"]
+        if isinstance(extensions, list):
+            # Use the first extension for glob pattern
+            search_pattern += extensions[0]
+        else:
+            search_pattern += extensions
 
     # Find all matching files
     matching_files = list(bids_path.glob(search_pattern))
@@ -461,15 +477,15 @@ def _collect_files_manually(
                 f"[snakenull] NOTE: Each zip_lists entry corresponds to one real file (no phantom combinations)"
             )
 
-            # Create a wrapper that provides both BidsComponent functionality
-            # AND attribute-style access for micapipe compatibility
-            wrapper = BidsComponentWrapper(
-                normalized_entity_lists, bids_component=component
-            )
-            return {component_name: wrapper}
+            # Return the BidsComponent directly - this is what snakemake/micapipe expects
+            # The BidsComponent already has expand() and zip_lists, which is all that's needed
+            return {component_name: component}
         except Exception as e:
             print(f"[snakenull] BidsComponent creation failed: {e}")
             # Fallback to BidsComponentWrapper only
+            print(
+                f"[snakenull] Using BidsComponentWrapper fallback for {component_name}"
+            )
             print(
                 f"[snakenull] Using BidsComponentWrapper fallback for {component_name}"
             )
