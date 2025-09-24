@@ -461,86 +461,67 @@ def _collect_files_manually(
         # Import BidsComponent here since we need it
         from snakebids import BidsComponent
 
-        # Replace entity values with wildcard patterns for ALL entities with real values
-        for entity, sample_value in entities_with_real_values.items():
-            # Look for BIDS entity patterns in the sample path
-            if entity == "subject":
-                pattern = f"sub-{sample_value}"
-                replacement = f"sub-{{{entity}}}"
-            elif entity == "session":
-                pattern = f"ses-{sample_value}"
-                replacement = f"ses-{{{entity}}}"
-            elif entity in ["acq", "run", "part", "task", "echo", "dir"]:
-                # Always use short entity names in templates for micapipe compatibility
-                pattern = f"{entity}-{sample_value}"
-                replacement = f"{entity}-{{{entity}}}"
-            else:
-                # For other entities, use them as-is
-                pattern = f"{entity}-{sample_value}"
-                replacement = f"{entity}-{{{entity}}}"
+        # CRITICAL INSIGHT: For BidsComponent compatibility, the path template must include
+        # ALL entities that appear in zip_lists as wildcards. Create a template that 
+        # includes all possible entities, even if some files don't have all entities.
+        
+        # Start with the sample path but make it generic for all entities
+        path_parts = str(sample_path).split('/')
+        filename = path_parts[-1]
+        
+        # Create a generic template with all entities as wildcards
+        # Format: sub-{subject}/ses-{session}/anat/sub-{subject}_ses-{session}_..._T1w.nii.gz
+        directory_template = "/".join(path_parts[:-1])  # Everything except filename
+        
+        # Replace directory parts with wildcards
+        directory_template = directory_template.replace(f"sub-{entities_with_real_values['subject']}", "sub-{subject}")
+        directory_template = directory_template.replace(f"ses-{entities_with_real_values['session']}", "ses-{session}")
+        
+        # Create filename template with ALL entities as optional wildcards
+        filename_template = "sub-{subject}_ses-{session}"
+        
+        # Add other entities if they exist
+        if 'acq' in zip_lists:
+            filename_template += "_acq-{acq}"
+        if 'run' in zip_lists:
+            filename_template += "_run-{run}" 
+        if 'part' in zip_lists:
+            filename_template += "_part-{part}"
+            
+        # Add suffix and extension
+        suffix_match = filename.split('_')[-1]  # e.g., "T1w.nii.gz"
+        filename_template += f"_{suffix_match}"
+        
+        path_template = f"{directory_template}/{filename_template}"
 
-            # Only replace if the pattern actually exists in the path
-            if pattern in path_template:
-                path_template = path_template.replace(pattern, replacement)
+        # CRITICAL: Don't filter zip_lists - BidsComponent needs ALL entities 
+        # The key insight: if zip_lists contains exact file-to-entity mappings,
+        # BidsComponent should not create phantom combinations even with cartesian product logic
+        
+        print(f"[snakenull] Using ALL normalized entities for BidsComponent: {list(zip_lists.keys())}")
+        print(f"[snakenull] Path template: {path_template}")
 
-        # CRITICAL: Filter zip_lists to only include entities that actually became wildcards
-        # in the path template. This ensures the zip_lists matches the wildcards exactly.
-
-        # Find which entities actually became wildcards in the template
-        template_entities = set()
-        for entity in zip_lists.keys():
-            if f"{{{entity}}}" in path_template:
-                template_entities.add(entity)
-
-        # Filter zip_lists to only include entities that are wildcards in the template
-        filtered_zip_lists = {
-            entity: values
-            for entity, values in zip_lists.items()
-            if entity in template_entities
-        }
-
-        print(f"[snakenull] Original zip_lists entities: {list(zip_lists.keys())}")
-        print(f"[snakenull] Path template wildcards: {sorted(template_entities)}")
-        print(
-            f"[snakenull] Filtered zip_lists entities: {list(filtered_zip_lists.keys())}"
-        )
+        # Use ALL zip_lists entities - no filtering
+        final_zip_lists = zip_lists
 
         # CRITICAL: BidsComponent creates cartesian products, but we need exact file mappings
         # Create a simple component that preserves exact file-to-entity correspondence
-        
-        print(f"[snakenull] Creating exact-mapping component for {component_name}")
+
+        # CRITICAL: Must use real BidsComponent for full compatibility (wildcards, etc.)
+        # but construct it properly to eliminate phantom combinations
+        print(f"[snakenull] Creating BidsComponent for {component_name}")
         print(f"[snakenull] Found {len(normalized_entity_lists['path'])} actual files")
         
-        # Create a simple component with exact file paths
-        class ExactMappingComponent:
-            def __init__(self, entity_lists, component_name):
-                self._entities = {k: v for k, v in entity_lists.items() if k != "path"}
-                self.path = entity_lists["path"]  # Actual file paths
-                self.name = component_name
-                
-            def expand(self, template_string=None, **kwargs):
-                """Return the actual file paths - no phantom combinations."""
-                if template_string is None:
-                    return self.path
-                else:
-                    # For templates, return actual file paths
-                    return self.path
-                    
-            @property
-            def entities(self):
-                return self._entities
-                
-            @property 
-            def zip_lists(self):
-                return self._entities
-                
-            def __getattr__(self, name):
-                """Provide attribute access to entity values."""
-                if name in self._entities:
-                    return self._entities[name]
-                raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
+        # Import BidsComponent here since we need it
+        from snakebids import BidsComponent
         
-        component = ExactMappingComponent(normalized_entity_lists, component_name)
+        # Create BidsComponent with the exact zip_lists that match path template wildcards
+        # This ensures no phantom combinations while maintaining full BidsComponent interface
+        component = BidsComponent(
+            name=component_name,
+            zip_lists=final_zip_lists,
+            path=path_template
+        )
         return {component_name: component}
     else:
         return {}
