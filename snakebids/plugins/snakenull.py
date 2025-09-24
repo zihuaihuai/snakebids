@@ -418,55 +418,97 @@ def _collect_files_manually(
     # Create a proper path template for BidsComponent
     # We need to construct a path template that matches the files we found
     if normalized_entity_lists["path"]:
-        # Use the first file as a template and replace ONLY entity values that exist in that file
-        sample_path = normalized_entity_lists["path"][0]
-        path_template = str(sample_path)
+        # Prepare zip_lists (exclude 'path') - these maintain exact file-to-entity correspondence
+        zip_lists = {k: v for k, v in normalized_entity_lists.items() if k != "path"}
 
-        # CRITICAL FIX: Only replace entity values that actually exist in the sample file
-        # Do NOT add wildcards for entities that don't exist in the file path
+        # CRITICAL FIX: Create path template that includes ALL entities that have real values
+        # Don't just use first file - analyze ALL files to see which entities are used
+
+        # Find entities that have at least one real (non-snakenull) value
+        entities_with_real_values = {}
+        for entity, values in zip_lists.items():
+            real_values = [v for v in values if v != "snakenull"]
+            if real_values:
+                entities_with_real_values[entity] = real_values[
+                    0
+                ]  # Use first real value as pattern
+
+        print(
+            f"[snakenull] Entities with real values: {list(entities_with_real_values.keys())}"
+        )
+
+        # Find a sample file that has as many real entities as possible
+        sample_path = None
+        max_real_entities = 0
+
+        for i, file_path in enumerate(normalized_entity_lists["path"]):
+            # Count how many real entities this file has
+            real_entity_count = 0
+            for entity in entities_with_real_values:
+                if zip_lists[entity][i] != "snakenull":
+                    real_entity_count += 1
+
+            if real_entity_count > max_real_entities:
+                max_real_entities = real_entity_count
+                sample_path = file_path
+
+        if not sample_path:
+            sample_path = normalized_entity_lists["path"][0]  # Fallback to first file
+
+        path_template = str(sample_path)
+        print(f"[snakenull] Using sample path: {sample_path}")
 
         # Import BidsComponent here since we need it
         from snakebids import BidsComponent
 
-        # Prepare zip_lists (exclude 'path') - these maintain exact file-to-entity correspondence
-        zip_lists = {k: v for k, v in normalized_entity_lists.items() if k != "path"}
+        # Replace entity values with wildcard patterns for ALL entities with real values
+        for entity, sample_value in entities_with_real_values.items():
+            # Look for BIDS entity patterns in the sample path
+            if entity == "subject":
+                pattern = f"sub-{sample_value}"
+                replacement = f"sub-{{{entity}}}"
+            elif entity == "session":
+                pattern = f"ses-{sample_value}"
+                replacement = f"ses-{{{entity}}}"
+            elif entity in ["acq", "run", "part", "task", "echo", "dir"]:
+                # Always use short entity names in templates for micapipe compatibility
+                pattern = f"{entity}-{sample_value}"
+                replacement = f"{entity}-{{{entity}}}"
+            else:
+                # For other entities, use them as-is
+                pattern = f"{entity}-{sample_value}"
+                replacement = f"{entity}-{{{entity}}}"
 
-        # Replace entity values with wildcard patterns ONLY if they exist in the path
-        for entity, values in zip_lists.items():
-            if values:
-                entity_value = values[0]  # Use first value to detect the pattern
+            # Only replace if the pattern actually exists in the path
+            if pattern in path_template:
+                path_template = path_template.replace(pattern, replacement)
 
-                # Skip 'snakenull' values - these represent missing entities
-                if entity_value == "snakenull":
-                    continue
+        # CRITICAL: Filter zip_lists to only include entities that actually became wildcards
+        # in the path template. This ensures the zip_lists matches the wildcards exactly.
 
-                # Look for BIDS entity patterns in the sample path
-                if entity == "subject":
-                    pattern = f"sub-{entity_value}"
-                    replacement = f"sub-{{{entity}}}"
-                elif entity == "session":
-                    pattern = f"ses-{entity_value}"
-                    replacement = f"ses-{{{entity}}}"
-                elif entity in ["acq", "run", "part", "task", "echo", "dir"]:
-                    # Always use short entity names in templates for micapipe compatibility
-                    pattern = f"{entity}-{entity_value}"
-                    replacement = f"{entity}-{{{entity}}}"
-                else:
-                    # For other entities, use them as-is
-                    pattern = f"{entity}-{entity_value}"
-                    replacement = f"{entity}-{{{entity}}}"
+        # Find which entities actually became wildcards in the template
+        template_entities = set()
+        for entity in zip_lists.keys():
+            if f"{{{entity}}}" in path_template:
+                template_entities.add(entity)
 
-                # Only replace if the pattern actually exists in the path
-                if pattern in path_template:
-                    path_template = path_template.replace(pattern, replacement)
+        # Filter zip_lists to only include entities that are wildcards in the template
+        filtered_zip_lists = {
+            entity: values
+            for entity, values in zip_lists.items()
+            if entity in template_entities
+        }
 
-        # CRITICAL: Do NOT add wildcards for entities that don't exist in the file
-        # This was the main bug - adding wildcards for missing entities created malformed templates
+        print(f"[snakenull] Original zip_lists entities: {list(zip_lists.keys())}")
+        print(f"[snakenull] Path template wildcards: {sorted(template_entities)}")
+        print(
+            f"[snakenull] Filtered zip_lists entities: {list(filtered_zip_lists.keys())}"
+        )
 
-        # Create BidsComponent with the corrected path template and zip_lists
+        # Create BidsComponent with the corrected path template and filtered zip_lists
         try:
             component = BidsComponent(
-                name=component_name, path=path_template, zip_lists=zip_lists
+                name=component_name, path=path_template, zip_lists=filtered_zip_lists
             )
             print(f"[snakenull] Created BidsComponent for {component_name}")
             print(f"[snakenull] Path template: {path_template}")
