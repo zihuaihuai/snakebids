@@ -505,34 +505,43 @@ def _collect_files_manually(
             f"[snakenull] Filtered zip_lists entities: {list(filtered_zip_lists.keys())}"
         )
 
-        # Create BidsComponent with the corrected path template and filtered zip_lists
-        try:
-            component = BidsComponent(
-                name=component_name, path=path_template, zip_lists=filtered_zip_lists
-            )
-            print(f"[snakenull] Created BidsComponent for {component_name}")
-            print(f"[snakenull] Path template: {path_template}")
-            print(
-                f"[snakenull] Entity summary: {[(k, len(v)) for k, v in zip_lists.items()]}"
-            )
-            print(
-                f"[snakenull] NOTE: Each zip_lists entry corresponds to one real file (no phantom combinations)"
-            )
-
-            # Return the BidsComponent directly - this is what snakemake/micapipe expects
-            # The BidsComponent already has expand() and zip_lists, which is all that's needed
-            return {component_name: component}
-        except Exception as e:
-            print(f"[snakenull] BidsComponent creation failed: {e}")
-            # Fallback to BidsComponentWrapper only
-            print(
-                f"[snakenull] Using BidsComponentWrapper fallback for {component_name}"
-            )
-            print(
-                f"[snakenull] Using BidsComponentWrapper fallback for {component_name}"
-            )
-            wrapper = BidsComponentWrapper(normalized_entity_lists)
-            return {component_name: wrapper}
+        # CRITICAL: BidsComponent creates cartesian products, but we need exact file mappings
+        # Create a simple component that preserves exact file-to-entity correspondence
+        
+        print(f"[snakenull] Creating exact-mapping component for {component_name}")
+        print(f"[snakenull] Found {len(normalized_entity_lists['path'])} actual files")
+        
+        # Create a simple component with exact file paths
+        class ExactMappingComponent:
+            def __init__(self, entity_lists, component_name):
+                self._entities = {k: v for k, v in entity_lists.items() if k != "path"}
+                self.path = entity_lists["path"]  # Actual file paths
+                self.name = component_name
+                
+            def expand(self, template_string=None, **kwargs):
+                """Return the actual file paths - no phantom combinations."""
+                if template_string is None:
+                    return self.path
+                else:
+                    # For templates, return actual file paths
+                    return self.path
+                    
+            @property
+            def entities(self):
+                return self._entities
+                
+            @property 
+            def zip_lists(self):
+                return self._entities
+                
+            def __getattr__(self, name):
+                """Provide attribute access to entity values."""
+                if name in self._entities:
+                    return self._entities[name]
+                raise AttributeError(f"'{type(self).__name__}' object has no attribute '{name}'")
+        
+        component = ExactMappingComponent(normalized_entity_lists, component_name)
+        return {component_name: component}
     else:
         return {}
 
